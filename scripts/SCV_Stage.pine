@@ -1,0 +1,174 @@
+//@version=6
+// ============================================================================
+//  SCV 选股系统 — 第 1 部分：Stage（阶段分析）
+//  S = Stage（本文件） | C = Contraction（待写） | V = Volume（待写）
+//
+//  核心：以 150 均线的方向 + 价格与 150 均线的位置，判断 Stage 1~4
+//    Stage 1  150均线趋平 · 横盘至少半年 · 交易量低迷 · 没有趋势
+//    Stage 2  150均线趋上 · 阳烛量放大 · 趋势延续性强（强度=交易量&速度）
+//    Stage 3  150均线趋平 · 波动大不创新高 · 阴烛量放大 · 跌穿150均线
+//    Stage 4  150均线趋下 · 做空时期 · 趋势延续性强 · 周期开始循环
+//  Stage 1 & Stage 3 不做任何交易
+// ============================================================================
+indicator("SCV - Stage 阶段分析", shorttitle = "SCV-Stage", overlay = true, max_labels_count = 200)
+
+// ============================== 输入 Inputs ===============================
+grpMA = "① 均线设置"
+len50  = input.int(50,  "50 均线",  minval = 1, group = grpMA)
+len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
+len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
+
+grpStage = "② Stage 判断"
+slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage, tooltip = "用 150 均线现在的值和 N 根K线前的值比较，判断趋上/趋平/趋下")
+flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "150均线在回看期内变动小于 ±此百分比 = 趋平")
+sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
+
+grpVol = "③ 交易量"
+volLen      = input.int(50,      "交易量均线长度",      minval = 1, group = grpVol)
+volLookback = input.int(20,      "阴/阳烛量比较回看期", minval = 1, group = grpVol)
+volRatio    = input.float(1.2,   "量放大倍数",          minval = 1.0, step = 0.1, group = grpVol, tooltip = "阳烛总量 > 阴烛总量 × 此倍数 = 阳烛量放大（反之为阴烛量放大）")
+
+grpRS = "④ RS Rating（相对强度）"
+rsSymbol   = input.symbol("SP:SPX", "对比指数",           group = grpRS)
+rsLookback = input.int(252,          "一年回看K线数",      minval = 1, group = grpRS)
+rsNearPct  = input.float(2.0,        "接近新高/新低 (%)",  minval = 0.1, step = 0.1, group = grpRS, tooltip = "RS线距离一年新高/历史新高在此范围内 = 准备破新高")
+
+grpMTF = "⑤ 大小周期"
+smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "大周期 = 当前图表（例如天图），小周期 = 此处设置（例如60分钟）。两者 150 均线同方向 = 大小周期同趋势")
+
+// ============================== 均线 MAs ==================================
+ma50  = ta.sma(close, len50)
+ma150 = ta.sma(close, len150)
+ma200 = ta.sma(close, len200)
+
+// 颜色规定：50均线 灰色 · 150均线 青色 · 200均线 红色
+plot(ma50,  "50均线",  color = color.gray, linewidth = 1)
+plot(ma150, "150均线", color = color.aqua, linewidth = 2)
+plot(ma200, "200均线", color = color.red,  linewidth = 2)
+
+// ====================== 150 均线方向（Stage 的核心） =======================
+// 斜率 = 150均线在 slopeLen 根K线内的变动百分比
+slope150  = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100
+trendUp   = slope150 >  flatPct        // 趋上
+trendDown = slope150 < -flatPct        // 趋下
+trendFlat = not trendUp and not trendDown  // 趋平
+
+// ============================ 交易量分析 ===================================
+volMA = ta.sma(volume, volLen)
+// 交易量低迷：当前量在均量之下，且均量没有在放大（Stage 1 特征）
+lowVolume = volume < volMA and volMA <= volMA[volLookback]
+// 回看期内 阳烛总量 vs 阴烛总量
+upVolSum = math.sum(close >= open ? volume : 0, volLookback)
+dnVolSum = math.sum(close <  open ? volume : 0, volLookback)
+upVolDominant = upVolSum > dnVolSum * volRatio   // 阳烛量放大（Stage 2 特征）
+dnVolDominant = dnVolSum > upVolSum * volRatio   // 阴烛量放大（Stage 3/4 特征）
+
+// ========================= Stage 判断（状态机） ============================
+// 趋平时要分 Stage 1 还是 Stage 3：
+//   之前是 Stage 2（涨完了才走平）→ Stage 3（顶部）
+//   其他情况（跌完了/一直没趋势）  → Stage 1（底部/横盘）
+var int stage = 1
+var int lastTrendStage = 0   // 记录最近一次的趋势 Stage（2 或 4）
+
+if trendUp and close > ma150
+    stage := 2
+    lastTrendStage := 2
+else if trendDown and close < ma150
+    stage := 4
+    lastTrendStage := 4
+else if trendFlat
+    stage := lastTrendStage == 2 ? 3 : 1
+// 趋势和价格矛盾时（例如均线趋上但价格已跌破150均线）→ 保持原 Stage 不变
+
+// Stage 1 横盘计时：趋平持续了多少根K线（要求至少半年）
+var int flatBars = 0
+flatBars := trendFlat ? flatBars + 1 : 0
+stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
+
+// Stage 3 警讯：跌穿 150 均线
+stage3BreakMA = stage == 3 and ta.crossunder(close, ma150)
+
+// ========================== 均线排列 =======================================
+bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列
+bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列
+
+// ==================== RS Rating（相对强度 近似） ============================
+// TradingView 拿不到 IBD 的 RS Rating，用 RS线 = 本股价格 ÷ 对比指数 来近似：
+// RS线接近一年新高/历史新高 = RS 越来越强（做多加分）；接近新低 = 做空加分
+benchClose = request.security(rsSymbol, timeframe.period, close)
+rsLine     = close / benchClose
+rsHigh1Y   = ta.highest(rsLine, rsLookback)
+rsLow1Y    = ta.lowest(rsLine, rsLookback)
+rsAth      = ta.max(rsLine)    // 历史最高
+rsAtl      = ta.min(rsLine)    // 历史最低
+rsNearHigh = rsLine >= rsHigh1Y * (1 - rsNearPct / 100) or rsLine >= rsAth * (1 - rsNearPct / 100)
+rsNearLow  = rsLine <= rsLow1Y * (1 + rsNearPct / 100) or rsLine <= rsAtl * (1 + rsNearPct / 100)
+
+// ======================== 大小周期同趋势 ===================================
+// 大周期 = 当前图表；小周期 = 输入的 smallTF，取小周期 150 均线的斜率
+f_slope150() =>
+    ma = ta.sma(close, len150)
+    (ma - ma[slopeLen]) / ma[slopeLen] * 100
+
+smallSlope   = request.security(syminfo.tickerid, smallTF, f_slope150())
+smallUp      = smallSlope >  flatPct
+smallDown    = smallSlope < -flatPct
+sameTrendUp   = trendUp and smallUp     // 大小周期同趋上
+sameTrendDown = trendDown and smallDown // 大小周期同趋下
+
+// ===================== 加分项目（按重要性排序给分） =========================
+// 做多：1. RS 准备破新高(+3)  2. Stage 2 + 多头排列(+2)  3. 大小周期同趋势(+1)
+int longScore = 0
+longScore += rsNearHigh ? 3 : 0
+longScore += stage == 2 and bullStack ? 2 : 0
+longScore += sameTrendUp ? 1 : 0
+
+// 做空：1. RS 准备破新低(+3)  2. Stage 4 + 空头排列(+2)  3. 大小周期同趋势(+1)
+int shortScore = 0
+shortScore += rsNearLow ? 3 : 0
+shortScore += stage == 4 and bearStack ? 2 : 0
+shortScore += sameTrendDown ? 1 : 0
+
+// ====================== 新图 / 旧图（注意事项 1 & 2） =======================
+// 旧图：K线数够算出 150 和 200 均线 → 看天图
+// 新图：只有 50 均线能算出来       → 该去看 4 小时图
+isOldChart = last_bar_index + 1 >= len200
+
+// ============================ 图表显示 =====================================
+stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
+// 背景淡淡的 Stage 颜色；Stage 1 & 3（不交易区）颜色更明显一点提醒
+bgcolor(color.new(stageColor, stage == 1 or stage == 3 ? 88 : 94))
+
+// Stage 转换时贴标签
+if stage != stage[1]
+    label.new(bar_index, high, "Stage " + str.tostring(stage), style = label.style_label_down, color = color.new(stageColor, 20), textcolor = color.white, size = size.small)
+
+// Stage 3 跌穿 150 均线警讯
+plotshape(stage3BreakMA, "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+
+// ============================ 信息面板 =====================================
+var table panel = table.new(position.top_right, 2, 10, border_width = 1, border_color = color.new(color.gray, 60))
+f_cell(int row, string k, string v, color c) =>
+    table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = size.small, text_halign = text.align_left)
+
+if barstate.islast
+    stageTxt = "Stage " + str.tostring(stage) + (stage == 1 ? stage1Confirmed ? "（横盘已满半年）" : "（横盘未满半年）" : "")
+    maTxt    = trendUp ? "趋上 ▲" : trendDown ? "趋下 ▼" : "趋平 —"
+    volTxt   = upVolDominant ? "阳烛量放大" : dnVolDominant ? "阴烛量放大" : lowVolume ? "交易量低迷" : "正常"
+    stackTxt = bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列"
+    mtfTxt   = sameTrendUp ? "同趋上 ✔" : sameTrendDown ? "同趋下 ✔" : "不同向 ✘"
+    rsTxt    = rsNearHigh ? "接近新高（强）" : rsNearLow ? "接近新低（弱）" : "中性"
+    tradeTxt = stage == 1 or stage == 3 ? "⛔ Stage " + str.tostring(stage) + " 不做任何交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
+    chartTxt = isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图"
+
+    f_cell(0, "Stage",      stageTxt, stageColor)
+    f_cell(1, "150均线",    maTxt + "  (" + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
+    f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
+    f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : color.gray)
+    f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
+    f_cell(5, "大小周期",   mtfTxt + "（小周期 " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
+    f_cell(6, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
+    f_cell(7, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
+    f_cell(8, "可否交易",   tradeTxt, stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
+    f_cell(9, "图表提示",   chartTxt, isOldChart ? color.gray : color.orange)
