@@ -34,7 +34,8 @@ rsLookback = input.int(252,          "一年回看K线数",      minval = 1, gro
 rsNearPct  = input.float(2.0,        "接近新高/新低 (%)",  minval = 0.1, step = 0.1, group = grpRS, tooltip = "RS线距离一年新高/历史新高在此范围内 = 准备破新高")
 
 grpMTF = "⑤ 大小周期"
-smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "大周期 = 当前图表（例如天图），小周期 = 此处设置（例如60分钟）。两者 150 均线同方向 = 大小周期同趋势")
+bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）")
+smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "两个周期 150 均线同方向 = 大小周期同趋势")
 
 // ============================== 均线 MAs ==================================
 ma50  = ta.sma(close, len50)
@@ -105,16 +106,16 @@ rsNearHigh = rsLine >= rsHigh1Y * (1 - rsNearPct / 100) or rsLine >= rsAth * (1 
 rsNearLow  = rsLine <= rsLow1Y * (1 + rsNearPct / 100) or rsLine <= rsAtl * (1 + rsNearPct / 100)
 
 // ======================== 大小周期同趋势 ===================================
-// 大周期 = 当前图表；小周期 = 输入的 smallTF，取小周期 150 均线的斜率
+// 大周期固定用输入的 bigTF（默认天图），小周期用 smallTF，
+// 各自算 150 均线斜率，同方向 = 大小周期同趋势（与当前图表周期无关）
 f_slope150() =>
     ma = ta.sma(close, len150)
     (ma - ma[slopeLen]) / ma[slopeLen] * 100
 
+bigSlope     = request.security(syminfo.tickerid, bigTF, f_slope150())
 smallSlope   = request.security(syminfo.tickerid, smallTF, f_slope150())
-smallUp      = smallSlope >  flatPct
-smallDown    = smallSlope < -flatPct
-sameTrendUp   = trendUp and smallUp     // 大小周期同趋上
-sameTrendDown = trendDown and smallDown // 大小周期同趋下
+sameTrendUp   = bigSlope >  flatPct and smallSlope >  flatPct  // 大小周期同趋上
+sameTrendDown = bigSlope < -flatPct and smallSlope < -flatPct  // 大小周期同趋下
 
 // ===================== 加分项目（按重要性排序给分） =========================
 // 做多：1. RS 准备破新高(+3)  2. Stage 2 + 多头排列(+2)  3. 大小周期同趋势(+1)
@@ -167,7 +168,7 @@ if barstate.islast
     f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
     f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : color.gray)
     f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
-    f_cell(5, "大小周期",   mtfTxt + "（小周期 " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
+    f_cell(5, "大小周期",   mtfTxt + "（" + bigTF + " vs " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
     f_cell(6, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
     f_cell(7, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
     f_cell(8, "可否交易",   tradeTxt, stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
