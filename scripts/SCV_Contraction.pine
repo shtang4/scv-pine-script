@@ -22,6 +22,13 @@
 //  Pivot Area / Cheap / Low Cheap：把 C1 的深度切成 3 等份
 //    做多：顶部 = Pivot Area · 中间 = Cheap · 底部 = Low Cheap
 //    做空：底部 = Pivot Area · 中间 = Cheap · 顶部 = Low Cheap
+//
+//  Base 计数规则：
+//    做多：从 Stage 2 开始数；跌穿前一个 Base 的低点，或退回 Stage 4 / Stage 1
+//          → 计数重置。Base 3、4 以后 = late stage，失败率变高（所以加分项 3
+//          只给 Base 1 或 2）
+//    做空：镜像 —— 从 Stage 4 开始数；升穿前一个 Base 的高点，或回到
+//          Stage 2 / Stage 1 → 计数重置
 // ============================================================================
 indicator("SCV - Contraction 收缩形态", shorttitle = "SCV-C", overlay = true, max_labels_count = 500)
 
@@ -44,6 +51,10 @@ c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
 c1Max     = input.float(35.0, "加分2：C1 最大深度 (%)", group = grpScore)
 showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
+grpStage = "④ Stage（用于 Base 计数）"
+slopeLen = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
+flatPct  = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "和 SCV-Stage 指标用同一套参数，两边保持一致")
+
 // ============================== 均线 & 排列 ================================
 ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
@@ -55,6 +66,22 @@ plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列 → 侦测做多收缩
 bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列 → 侦测做空收缩
 int mode = bullStack ? 1 : bearStack ? -1 : 0
+
+// ==================== Stage 判断（与 SCV-Stage 同一套逻辑） =================
+slope150  = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100
+trendUp   = slope150 >  flatPct
+trendDown = slope150 < -flatPct
+trendFlat = not trendUp and not trendDown
+var int stage = 1
+var int lastTrendStage = 0
+if trendUp and close > ma150
+    stage := 2
+    lastTrendStage := 2
+else if trendDown and close < ma150
+    stage := 4
+    lastTrendStage := 4
+else if trendFlat
+    stage := lastTrendStage == 2 ? 3 : 1
 
 // ========================= 结构（C1~C6）存储 ===============================
 var cStart = array.new<float>()   // 每段收缩的波段起点：做多=波段高点，做空=波段低点
@@ -86,7 +113,8 @@ var float recExt     = na     // 收缩极值之后的恢复极值（做多=反�
 var int   runCount   = 0      // 当前连续 阴烛/变盘线（做多）数
 var int   maxRun     = 0      // 本波段内最大连续数（≥3 才算有效收缩）
 var bool  touch50    = false  // 本段回调是否动到 50 均线
-var int   baseCount  = 0      // 已突破的 Base 数量
+var int   baseCount  = 0      // 已突破的 Base 数量（从 Stage 2 / Stage 4 开始数）
+var float lastBaseEnd = na    // 前一个已突破 Base 的低点（做多）/ 高点（做空）
 var string lastBaseTxt = "—"  // 最近一次 Base 突破纪录
 
 // 排列改变 → 全部重置（Base 计数也重来）
@@ -94,6 +122,7 @@ if mode != activeMode
     activeMode := mode
     f_clear()
     baseCount   := 0
+    lastBaseEnd := na
     legExt      := na
     inPullback  := false
     runCount    := 0
@@ -103,6 +132,16 @@ if mode != activeMode
 bool isLong  = activeMode == 1
 bool evtBreak = false   // 本根K线发生 Base 突破
 bool evtBuy   = false   // 突破且最后一段 ≤ 买点百分比
+
+// ======================= Base 计数重置规则 =================================
+// 做多：退回 Stage 4 / Stage 1，或跌穿前一个 Base 的低点 → 归零
+// 做空：回到 Stage 2 / Stage 1，或升穿前一个 Base 的高点 → 归零
+if activeMode != 0
+    bool stageReset = isLong ? (stage == 1 or stage == 4) : (stage == 1 or stage == 2)
+    bool undercutPrevBase = not na(lastBaseEnd) and (isLong ? low < lastBaseEnd : high > lastBaseEnd)
+    if stageReset or undercutPrevBase
+        baseCount   := 0
+        lastBaseEnd := na
 
 // ============================ 逐根K线侦测 ==================================
 if activeMode != 0
@@ -234,6 +273,7 @@ if activeMode != 0 and array.size(cDepth) >= 1
             evtBreak := true
             evtBuy   := lastD <= buyPct
             baseCount += 1
+            lastBaseEnd := array.get(cEnd, 0)   // 这个 Base 的低点(做多)/高点(做空)，跌穿/升穿它 → 计数重置
             string bTxt = (isLong ? "🚀 突破 Base #" : "🔻 跌破 Base #") + str.tostring(baseCount) +
                  (evtBuy ? "\n✅ 买点（末段 " + str.tostring(lastD, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%）" :
                            "\n⚠️ 末段 " + str.tostring(lastD, "#.##") + "% > " + str.tostring(buyPct, "#.#") + "%") +
@@ -282,7 +322,7 @@ if barstate.islast
             depthTxt += "C" + str.tostring(i + 1) + " " + str.tostring(array.get(cDepth, i), "#.##") + "%  "
     else
         depthTxt := "—"
-    string modeTxt  = activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测"
+    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + " · Stage " + str.tostring(stage)
     string c1maTxt  = cN >= 1 ? (array.get(cTouch, 0) ? "✔ 有动到" : "✘ 没动到") : "—"
     string buyTxt   = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(array.last(cDepth), "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
          "未到（末段 " + str.tostring(array.last(cDepth), "#.##") + "%）") : "结构未成立（需 ≥2 段）"
@@ -294,7 +334,9 @@ if barstate.islast
          (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
 
     f_cell(0,  "排列 / 方向",  modeTxt, activeMode == 1 ? color.green : activeMode == -1 ? color.red : color.gray)
-    f_cell(1,  "目前 Base",    "#" + str.tostring(baseCount + 1) + "（已突破 " + str.tostring(baseCount) + " 个）", color.gray)
+    bool countPaused = activeMode == 1 ? (stage == 1 or stage == 4) : activeMode == -1 ? (stage == 1 or stage == 2) : true
+    f_cell(1,  "目前 Base",    countPaused ? "计数重置中（Stage " + str.tostring(stage) + "）" :
+         "#" + str.tostring(baseCount + 1) + "（已突破 " + str.tostring(baseCount) + " 个）", countPaused ? color.gray : baseCount + 1 <= 2 ? color.teal : color.orange)
     f_cell(2,  "收缩段数",     str.tostring(cN) + "（结构需 2~6 段）", cN >= 2 ? color.teal : color.gray)
     f_cell(3,  "各段深度",     depthTxt, color.gray)
     f_cell(4,  "C1 动到50均线", c1maTxt, cN >= 1 and array.get(cTouch, 0) ? color.teal : color.gray)
