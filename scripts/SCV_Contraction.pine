@@ -216,8 +216,10 @@ float zThird = (c1A - c1B) / 3                    // 做多为正、做空为负
 float z1 = c1A - zThird                           // Pivot Area 与 Cheap 的分界
 float z2 = c1A - 2 * zThird                       // Cheap 与 Low Cheap 的分界
 
-// 加分4 (+2)：突破区域 = Pivot Area —— 最后一段收缩的终点落在靠突破位的那 1/3 区内
-bool score4OK = cN >= 2 and (isLong ? array.last(cEnd) >= z1 : array.last(cEnd) <= z1)
+// 加分4 (+2)：突破区域 = Pivot Area
+//   做多：最后一段收缩的高点 落在 Pivot Area（顶部 1/3）内
+//   做空：最后一段收缩的低点 落在 Pivot Area（底部 1/3）内
+bool score4OK = cN >= 2 and (isLong ? array.last(cStart) >= z1 : array.last(cStart) <= z1)
 int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
 
 // 买点条件：结构成立（≥2段）且最后一段收缩 ≤ 10%
