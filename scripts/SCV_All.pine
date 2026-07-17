@@ -1,0 +1,443 @@
+//@version=6
+// ============================================================================
+//  SCV 选股系统 — 合并版：Stage + Contraction + Volume
+//
+//  ── S · Stage ──────────────────────────────────────────────────────────
+//    以 150 均线方向 + 价格位置判断 Stage 1~4：
+//    Stage 1 趋平·横盘至少半年·量低迷 | Stage 2 趋上·做多 | Stage 3 趋平(顶)·
+//    跌穿150均线 | Stage 4 趋下·做空。Stage 1 & 3 不做任何交易。
+//    加分（做多）：RS 准备破新高 +3 · Stage2+多头排列 +2 · 大小周期同趋势 +1
+//    加分（做空）：镜像。50均线灰色 · 150均线青色 · 200均线红色。
+//    旧图（K线数够 200 均线）看天图；新图只有 50 均线 → 看 4 小时图。
+//
+//  ── C · Contraction ────────────────────────────────────────────────────
+//    做多（多头排列）：C = 回调中出现连续 3 根阴烛/变盘线；C1 动到 50 均线；
+//    波段缩小·底部抬高；结构 = 2~6 段；买点 = 末段 ≤ 10%；Base = 突破 C1 高点。
+//    做空镜像。C1 切 3 等份：靠突破位 1/3 = Pivot Area，中间 = Cheap，
+//    最远 1/3 = Low Cheap。
+//    加分（满分10）：收缩合理(每段≤前段一半+1%) +3 · C1 在 20-35% +3 ·
+//    Base 在 1或2 +2 · 突破区 = Pivot Area(末段收缩的高点/低点在内) +2
+//    Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
+//    或退回 Stage 4/1（做空：升穿前 Base 高点或回到 Stage 2/1）→ 归零。
+//
+//  ── V · Volume ─────────────────────────────────────────────────────────
+//    做多：结构 = 阴烛量小阳烛量大 · 突破 = 放量阳烛 · 日交易金额 > 1百万 ·
+//    加分 = 阳烛多阴烛少。做空镜像。
+//    （合并版为主图指标，成交量柱请用 TradingView 内建的；放量突破以
+//     K线上方圆点标记）
+// ============================================================================
+indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500)
+
+// ============================== 输入 Inputs ===============================
+grpMA = "① 均线"
+len50  = input.int(50,  "50 均线",  minval = 1, group = grpMA)
+len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
+len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
+showMA = input.bool(true, "显示均线", group = grpMA)
+
+grpStage = "② Stage"
+slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
+flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage)
+sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
+
+grpRS = "③ RS Rating（相对强度）"
+rsSymbol   = input.symbol("SP:SPX", "对比指数",          group = grpRS)
+rsLookback = input.int(252,          "一年回看K线数",     minval = 1, group = grpRS)
+rsNearPct  = input.float(2.0,        "接近新高/新低 (%)", minval = 0.1, step = 0.1, group = grpRS)
+
+grpMTF = "④ 大小周期"
+smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "大周期 = 当前图表，小周期 = 此处设置")
+
+grpC = "⑤ Contraction"
+dojiPct        = input.float(30.0, "变盘线：实体 ≤ K线范围 (%)", minval = 1, maxval = 100, group = grpC)
+pivLen         = input.int(3,      "收缩极值确认K线数",          minval = 1, group = grpC)
+requireTouch50 = input.bool(true,  "C1 必须动到 50均线",         group = grpC)
+tol50          = input.float(2.0,  "50均线触碰容差 (%)",         minval = 0, step = 0.5, group = grpC)
+buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)",   minval = 0.5, step = 0.5, group = grpC)
+c1Min          = input.float(20.0, "加分：C1 最小深度 (%)",      group = grpC)
+c1Max          = input.float(35.0, "加分：C1 最大深度 (%)",      group = grpC)
+showZones      = input.bool(true,  "显示 C1 三等份区域",         group = grpC)
+
+grpVol = "⑥ Volume"
+volLookback  = input.int(20,    "量能回看K线数",          minval = 1, group = grpVol, tooltip = "结构量能与烛数加分的统计期间")
+volRatio     = input.float(1.2, "量大倍数",               minval = 1.0, step = 0.1, group = grpVol)
+volMALen     = input.int(50,    "交易量均线长度",         minval = 1, group = grpVol)
+breakoutMult = input.float(1.5, "突破放量倍数",           minval = 1.0, step = 0.1, group = grpVol)
+minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpVol)
+dollarLB     = input.int(20,    "交易金额平均回看K线数",   minval = 1, group = grpVol)
+
+grpPanel = "⑦ 面板"
+showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
+showC = input.bool(true, "显示 Contraction 区块", group = grpPanel)
+showV = input.bool(true, "显示 Volume 区块",      group = grpPanel)
+
+// ============================== 均线 & 排列 ================================
+ma50  = ta.sma(close, len50)
+ma150 = ta.sma(close, len150)
+ma200 = ta.sma(close, len200)
+plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
+plot(showMA ? ma150 : na, "150均线", color = color.aqua, linewidth = 2)
+plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
+
+bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列
+bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列
+int mode = bullStack ? 1 : bearStack ? -1 : 0
+
+// ============================ S · Stage ====================================
+slope150  = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100
+trendUp   = slope150 >  flatPct
+trendDown = slope150 < -flatPct
+trendFlat = not trendUp and not trendDown
+
+var int stage = 1
+var int lastTrendStage = 0
+if trendUp and close > ma150
+    stage := 2
+    lastTrendStage := 2
+else if trendDown and close < ma150
+    stage := 4
+    lastTrendStage := 4
+else if trendFlat
+    stage := lastTrendStage == 2 ? 3 : 1
+
+var int flatBars = 0
+flatBars := trendFlat ? flatBars + 1 : 0
+stage3BreakMA = stage == 3 and ta.crossunder(close, ma150)
+
+// —— 量能统计（S 与 V 共用） ——
+bool isUp = close > open
+bool isDn = close < open
+float sumUpVol = math.sum(isUp ? volume : 0, volLookback)
+float sumDnVol = math.sum(isDn ? volume : 0, volLookback)
+int   cntUp    = int(math.sum(isUp ? 1 : 0, volLookback))
+int   cntDn    = int(math.sum(isDn ? 1 : 0, volLookback))
+float avgUpVol = cntUp > 0 ? sumUpVol / cntUp : 0
+float avgDnVol = cntDn > 0 ? sumDnVol / cntDn : 0
+float volMA    = ta.sma(volume, volMALen)
+bool upVolDominant = avgUpVol > avgDnVol * volRatio   // 阳烛量放大
+bool dnVolDominant = avgDnVol > avgUpVol * volRatio   // 阴烛量放大
+bool lowVolume     = volume < volMA and volMA <= volMA[volLookback]  // 交易量低迷
+stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
+
+// —— RS 相对强度（近似 RS Rating） ——
+benchClose = request.security(rsSymbol, timeframe.period, close)
+rsLine     = close / benchClose
+rsHigh1Y   = ta.highest(rsLine, rsLookback)
+rsLow1Y    = ta.lowest(rsLine, rsLookback)
+rsAth      = ta.max(rsLine)
+rsAtl      = ta.min(rsLine)
+rsNearHigh = rsLine >= rsHigh1Y * (1 - rsNearPct / 100) or rsLine >= rsAth * (1 - rsNearPct / 100)
+rsNearLow  = rsLine <= rsLow1Y * (1 + rsNearPct / 100) or rsLine <= rsAtl * (1 + rsNearPct / 100)
+
+// —— 大小周期同趋势 ——
+f_slope150() =>
+    ma = ta.sma(close, len150)
+    (ma - ma[slopeLen]) / ma[slopeLen] * 100
+smallSlope    = request.security(syminfo.tickerid, smallTF, f_slope150())
+sameTrendUp   = trendUp and smallSlope > flatPct
+sameTrendDown = trendDown and smallSlope < -flatPct
+
+// —— S 加分 ——
+int sLongScore = (rsNearHigh ? 3 : 0) + (stage == 2 and bullStack ? 2 : 0) + (sameTrendUp ? 1 : 0)
+int sShortScore = (rsNearLow ? 3 : 0) + (stage == 4 and bearStack ? 2 : 0) + (sameTrendDown ? 1 : 0)
+
+// —— 新图 / 旧图 ——
+isOldChart = last_bar_index + 1 >= len200
+
+// ========================= C · Contraction =================================
+var cStart = array.new<float>()   // 每段收缩的波段起点（做多=高点，做空=低点）
+var cEnd   = array.new<float>()   // 每段收缩的终点（做多=回调低点，做空=反弹高点）
+var cDepth = array.new<float>()   // 每段收缩深度 (%)
+var cTouch = array.new<bool>()    // 该段是否动到 50 均线
+
+f_clear() =>
+    array.clear(cStart)
+    array.clear(cEnd)
+    array.clear(cDepth)
+    array.clear(cTouch)
+
+f_push(float s, float e, float d, bool t) =>
+    array.push(cStart, s)
+    array.push(cEnd, e)
+    array.push(cDepth, d)
+    array.push(cTouch, t)
+
+var int   activeMode = 0
+var float legExt     = na
+var float runLow     = na
+var int   runLowBar  = na
+var bool  inPullback = false
+var float pbExt      = na
+var int   pbExtBar   = na
+var float recExt     = na
+var int   runCount   = 0
+var int   maxRun     = 0
+var bool  touch50    = false
+var int   baseCount  = 0
+var float lastBaseEnd = na
+var string lastBaseTxt = "—"
+
+if mode != activeMode
+    activeMode := mode
+    f_clear()
+    baseCount   := 0
+    lastBaseEnd := na
+    legExt      := na
+    inPullback  := false
+    runCount    := 0
+    maxRun      := 0
+    touch50     := false
+
+bool isLong  = activeMode == 1
+bool evtBreak = false
+bool evtBuy   = false
+
+// —— Base 计数重置：做多退回 Stage 4/1 或跌穿前 Base 低点；做空镜像 ——
+if activeMode != 0
+    bool stageReset = isLong ? (stage == 1 or stage == 4) : (stage == 1 or stage == 2)
+    bool undercutPrevBase = not na(lastBaseEnd) and (isLong ? low < lastBaseEnd : high > lastBaseEnd)
+    if stageReset or undercutPrevBase
+        baseCount   := 0
+        lastBaseEnd := na
+
+// —— 逐根侦测收缩 ——
+if activeMode != 0
+    float body  = math.abs(close - open)
+    float rng   = high - low
+    bool isDoji = rng == 0 or body <= rng * dojiPct / 100
+    bool counterCandle = isLong ? (close < open or isDoji) : (close > open or isDoji)
+
+    if not inPullback
+        bool newExt = na(legExt) or (isLong ? high > legExt : low < legExt)
+        if newExt
+            legExt    := isLong ? high : low
+            runLow    := isLong ? low : high
+            runLowBar := bar_index
+            maxRun    := 0
+            runCount  := 0
+            touch50   := false
+        else if isLong ? low < runLow : high > runLow
+            runLow    := isLong ? low : high
+            runLowBar := bar_index
+        touch50  := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
+        runCount := counterCandle ? runCount + 1 : 0
+        maxRun   := math.max(maxRun, runCount)
+        if maxRun >= 3 and not na(legExt)
+            inPullback := true
+            pbExt      := runLow
+            pbExtBar   := runLowBar
+            recExt     := isLong ? high : low
+    else
+        if isLong ? low < pbExt : high > pbExt
+            pbExt    := isLong ? low : high
+            pbExtBar := bar_index
+            recExt   := isLong ? high : low
+        else
+            recExt := isLong ? math.max(recExt, high) : math.min(recExt, low)
+        touch50 := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
+
+        bool fullRecover = isLong ? high > legExt : low < legExt
+        bool quietSeal   = bar_index - pbExtBar >= pivLen
+        if fullRecover or quietSeal
+            float newDepth = isLong ? (legExt - pbExt) / legExt * 100 : (pbExt - legExt) / legExt * 100
+            bool pushed = false
+            if array.size(cDepth) == 0
+                if not requireTouch50 or touch50
+                    f_push(legExt, pbExt, newDepth, touch50)
+                    pushed := true
+            else
+                float prevDepth = array.last(cDepth)
+                float prevEnd   = array.last(cEnd)
+                bool seqOK = array.size(cDepth) < 6 and newDepth < prevDepth and (isLong ? pbExt > prevEnd : pbExt < prevEnd)
+                if seqOK
+                    f_push(legExt, pbExt, newDepth, touch50)
+                    pushed := true
+                else
+                    f_clear()
+                    if not requireTouch50 or touch50
+                        f_push(legExt, pbExt, newDepth, touch50)
+                        pushed := true
+            if pushed
+                int n = array.size(cDepth)
+                label.new(pbExtBar, pbExt, "C" + str.tostring(n) + " " + str.tostring(newDepth, "#.##") + "%",
+                     style = isLong ? label.style_label_up : label.style_label_down,
+                     color = color.new(color.blue, 25), textcolor = color.white, size = size.small)
+            else
+                label.new(pbExtBar, pbExt, "✗ 未动到50均线",
+                     style = isLong ? label.style_label_up : label.style_label_down,
+                     color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
+            inPullback := false
+            legExt     := recExt
+            runLow     := isLong ? low : high
+            runLowBar  := bar_index
+            maxRun     := 0
+            runCount   := 0
+            touch50    := false
+
+    // 结构失效：价格越过 C1 的收缩极值
+    if array.size(cDepth) >= 1 and (isLong ? low < array.get(cEnd, 0) : high > array.get(cEnd, 0))
+        f_clear()
+
+// —— C 加分 & 买点 ——
+int cN = array.size(cDepth)
+
+bool score1OK = cN >= 2
+if score1OK
+    for i = 1 to cN - 1
+        if array.get(cDepth, i) > array.get(cDepth, i - 1) / 2 + 1
+            score1OK := false
+bool score2OK = cN >= 1 and array.get(cDepth, 0) >= c1Min and array.get(cDepth, 0) <= c1Max
+bool score3OK = activeMode != 0 and baseCount + 1 <= 2
+
+// C1 切 3 等份：做多 顶部=Pivot Area 中间=Cheap 底部=Low Cheap（做空镜像）
+float c1A = cN >= 1 ? array.get(cStart, 0) : na
+float c1B = cN >= 1 ? array.get(cEnd, 0) : na
+float zThird = (c1A - c1B) / 3
+float z1 = c1A - zThird
+float z2 = c1A - 2 * zThird
+
+// 加分4：最后一段收缩的高点(做多)/低点(做空) 落在 Pivot Area 内
+bool score4OK = cN >= 2 and (isLong ? array.last(cStart) >= z1 : array.last(cStart) <= z1)
+int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
+bool buyZone = cN >= 2 and array.last(cDepth) <= buyPct
+
+// ============================ V · Volume ===================================
+bool structVolOK = mode != 0 and (isLong ? upVolDominant : dnVolDominant)
+bool bigVol = volume > volMA * breakoutMult
+bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
+float avgDollarVol = ta.sma(close * volume, dollarLB)
+bool liqOK = avgDollarVol > minDollarM * 1000000
+bool vBonusOK = mode != 0 and (isLong ? cntUp > cntDn : cntDn > cntUp)
+
+// ====================== C · Base 突破（需 V 一起看） ========================
+if activeMode != 0 and array.size(cDepth) >= 1
+    float baseLv = array.get(cStart, 0)
+    if isLong ? high > baseLv : low < baseLv
+        if array.size(cDepth) >= 2
+            float lastD = array.last(cDepth)
+            evtBreak := true
+            evtBuy   := lastD <= buyPct
+            baseCount += 1
+            lastBaseEnd := array.get(cEnd, 0)
+            string volNote = breakoutVolOK ? "\n量能 ✔ 放量" + (isLong ? "阳烛" : "阴烛") : "\n量能 ✘ 未放量"
+            string bTxt = (isLong ? "🚀 突破 Base #" : "🔻 跌破 Base #") + str.tostring(baseCount) +
+                 (evtBuy ? "\n✅ 买点（末段 " + str.tostring(lastD, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%）" :
+                           "\n⚠️ 末段 " + str.tostring(lastD, "#.##") + "% > " + str.tostring(buyPct, "#.#") + "%") +
+                 "\nC 加分 " + str.tostring(cScore) + "/10" + volNote
+            label.new(bar_index, isLong ? low : high, bTxt,
+                 style = isLong ? label.style_label_up : label.style_label_down,
+                 color = evtBuy ? (isLong ? color.new(color.green, 10) : color.new(color.red, 10)) : color.new(color.orange, 20),
+                 textcolor = color.white, size = size.normal)
+            lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · C " + str.tostring(cScore) + "/10" +
+                 (evtBuy ? " · ✅买点" : " · ⚠️非买点") + (breakoutVolOK ? " · 放量✔" : " · 放量✘")
+        f_clear()
+        inPullback := false
+        legExt     := isLong ? high : low
+        runLow     := isLong ? low : high
+        runLowBar  := bar_index
+        maxRun     := 0
+        runCount   := 0
+        touch50    := false
+
+// ============================ 图表显示 =====================================
+// Stage 背景 & 转换标签
+stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
+bgcolor(color.new(stageColor, stage == 1 or stage == 3 ? 88 : 94), title = "Stage 背景")
+if stage != stage[1]
+    label.new(bar_index, high, "Stage " + str.tostring(stage), style = label.style_label_down,
+         color = color.new(stageColor, 20), textcolor = color.white, size = size.small)
+plotshape(stage3BreakMA, "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+
+// C1 突破位 + 三等份区域
+pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+pZ1  = plot(showZones ? z1 : na, "Pivot/Cheap 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pZ2  = plot(showZones ? z2 : na, "Cheap/Low Cheap 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pBot = plot(showZones ? c1B : na, "C1 收缩终点",         color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+fill(pBrk, pZ1, color = showZones ? color.new(color.green,  82) : na, title = "Pivot Area")
+fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "Cheap")
+fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheap")
+
+// 买点区域背景 & Base 突破三角
+bgcolor(buyZone ? color.new(isLong ? color.green : color.red, 85) : na, title = "买点区域背景")
+plotshape(evtBreak and isLong,     "Base 向上突破", style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.small)
+plotshape(evtBreak and not isLong, "Base 向下跌破", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
+
+// 放量突破烛（V）：K线上方圆点
+plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, location = location.abovebar, color = color.new(color.green, 20), size = size.tiny)
+plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
+
+// ============================ 信息面板 =====================================
+var table panel = table.new(position.top_right, 2, 20, border_width = 1, border_color = color.new(color.gray, 60))
+f_cell(int row, string k, string v, color c) =>
+    table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = size.small, text_halign = text.align_left)
+    row + 1
+
+if barstate.islast
+    table.clear(panel, 0, 0, 1, 19)
+    int r = 0
+
+    // —— 综合 ——
+    string stackTxt = bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列"
+    string tradeTxt = stage == 1 or stage == 3 ? "⛔ 不交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
+    r := f_cell(r, "SCV 综合", "Stage " + str.tostring(stage) + " · " + stackTxt + " · " + tradeTxt,
+         stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
+
+    // —— S · Stage ——
+    if showS
+        string maTxt  = trendUp ? "趋上 ▲" : trendDown ? "趋下 ▼" : "趋平 —"
+        string volSTxt = upVolDominant ? "阳烛量放大" : dnVolDominant ? "阴烛量放大" : lowVolume ? "交易量低迷" : "正常"
+        string rsTxt  = rsNearHigh ? "接近新高（强）" : rsNearLow ? "接近新低（弱）" : "中性"
+        string mtfTxt = sameTrendUp ? "同趋上 ✔" : sameTrendDown ? "同趋下 ✔" : "不同向 ✘"
+        r := f_cell(r, "S · 150均线", maTxt + "（" + str.tostring(slope150, "#.##") + "%）" +
+             (stage == 1 ? stage1Confirmed ? " 横盘已满半年" : " 横盘未满半年" : ""),
+             trendUp ? color.green : trendDown ? color.red : color.gray)
+        r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
+        r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
+        r := f_cell(r, "S · 大小周期", mtfTxt + "（小周期 " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
+        r := f_cell(r, "S · 加分", "做多 " + str.tostring(sLongScore) + "/6 · 做空 " + str.tostring(sShortScore) + "/6",
+             sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : color.gray)
+        r := f_cell(r, "S · 图表", isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图", isOldChart ? color.gray : color.orange)
+
+    // —— C · Contraction ——
+    if showC
+        bool countPaused = activeMode == 1 ? (stage == 1 or stage == 4) : activeMode == -1 ? (stage == 1 or stage == 2) : true
+        string baseTxt = countPaused ? "计数重置中（Stage " + str.tostring(stage) + "）" :
+             "#" + str.tostring(baseCount + 1) + "（已突破 " + str.tostring(baseCount) + " 个）"
+        string depthTxt = ""
+        if cN > 0
+            for i = 0 to cN - 1
+                depthTxt += "C" + str.tostring(i + 1) + " " + str.tostring(array.get(cDepth, i), "#.##") + "%  "
+        else
+            depthTxt := "—"
+        string c1maTxt = cN >= 1 ? (array.get(cTouch, 0) ? "✔ 有动到" : "✘ 没动到") : "—"
+        string buyTxt  = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(array.last(cDepth), "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
+             "未到（末段 " + str.tostring(array.last(cDepth), "#.##") + "%）") : "结构未成立（需 ≥2 段）"
+        string zoneTxt = cN >= 1 ? (isLong ?
+             (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheap（中间 1/3）" : "Low Cheap（底部 1/3）") :
+             (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheap（中间 1/3）" : "Low Cheap（顶部 1/3）")) : "—"
+        color zoneCol = cN >= 1 ? (isLong ? (close >= z1 ? color.green : close >= z2 ? color.orange : color.blue) :
+             (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
+        string cScoreTxt = "收缩合理" + (score1OK ? "✔" : "✘") + " C1区间" + (score2OK ? "✔" : "✘") +
+             " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") + " = " + str.tostring(cScore) + "/10"
+        r := f_cell(r, "C · 目前 Base", baseTxt, countPaused ? color.gray : baseCount + 1 <= 2 ? color.teal : color.orange)
+        r := f_cell(r, "C · 收缩段数", str.tostring(cN) + "（需 2~6）| " + depthTxt, cN >= 2 ? color.teal : color.gray)
+        r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and array.get(cTouch, 0) ? color.teal : color.gray)
+        r := f_cell(r, "C · 买点 (≤10%)", buyTxt, buyZone ? color.green : color.gray)
+        r := f_cell(r, "C · 价格位置", zoneTxt, zoneCol)
+        r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
+        r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)
+
+    // —— V · Volume ——
+    if showV
+        string structTxt = mode == 0 ? "—" : (structVolOK ? "✔ " : "✘ ") +
+             (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? avgUpVol : avgDnVol, format.volume) +
+             " vs " + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? avgDnVol : avgUpVol, format.volume)
+        string brkTxt = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
+             "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
+        string liqTxt = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
+        string vBonusTxt = mode == 0 ? "—" : (vBonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUp) + " vs 阴烛 " + str.tostring(cntDn) + " 根"
+        r := f_cell(r, "V · 结构量能", structTxt, structVolOK ? color.green : color.gray)
+        r := f_cell(r, "V · 突破量能", brkTxt, breakoutVolOK ? color.green : color.gray)
+        r := f_cell(r, "V · 日均交易金额", liqTxt, liqOK ? color.green : color.red)
+        r := f_cell(r, "V · 加分：烛数", vBonusTxt, vBonusOK ? color.green : color.gray)
