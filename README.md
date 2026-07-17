@@ -6,7 +6,7 @@ SCV TradingView Pine Script — 选股系统三大成分：
 |------|------|------|------|
 | **S** — Stage | 以 150 均线判断 Stage 1~4 阶段 | `scripts/SCV_Stage.pine` | ✅ 完成 |
 | **C** — Contraction | VCP 式收缩形态 C1~C6、Base 突破、买点 | `scripts/SCV_Contraction.pine` | ✅ 完成 |
-| **V** — Volume | 交易量 | — | ⏳ 待写 |
+| **V** — Volume | 结构量能、突破放量、流动性、烛数加分 | `scripts/SCV_Volume.pine` | ✅ 完成 |
 
 ## 使用方法
 
