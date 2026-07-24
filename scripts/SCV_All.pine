@@ -276,32 +276,46 @@ if activeMode != 0
             runCount   := 0
             touch50    := false
 
-    // 结构失效：价格越过 C1 的收缩极值
-    if array.size(cDepth) >= 1 and (isLong ? low < array.get(cEnd, 0) : high > array.get(cEnd, 0))
-        f_clear()
+    // 结构失效：价格越过 C1 的收缩极值（分开写，数组空时不做 array.get）
+    if array.size(cDepth) >= 1
+        if isLong ? low < array.get(cEnd, 0) : high > array.get(cEnd, 0)
+            f_clear()
 
 // —— C 加分 & 买点 ——
 int cN = array.size(cDepth)
+
+// —— 安全取值：数组为空时不碰 array.get/last，避免越界错误 ——
+float c1A       = na     // C1 波段起点（做多=高点，做空=低点）= 突破位
+float c1B       = na     // C1 收缩终点
+float c1Depth   = na     // C1 深度
+bool  c1Touched = false  // C1 是否动到 50 均线
+float lastStart = na     // 最后一段的波段起点
+float lastDepth = na     // 最后一段深度
+if cN >= 1
+    c1A       := array.get(cStart, 0)
+    c1B       := array.get(cEnd, 0)
+    c1Depth   := array.get(cDepth, 0)
+    c1Touched := array.get(cTouch, 0)
+    lastStart := array.last(cStart)
+    lastDepth := array.last(cDepth)
 
 bool score1OK = cN >= 2
 if score1OK
     for i = 1 to cN - 1
         if array.get(cDepth, i) > array.get(cDepth, i - 1) / 2 + 1
             score1OK := false
-bool score2OK = cN >= 1 and array.get(cDepth, 0) >= c1Min and array.get(cDepth, 0) <= c1Max
+bool score2OK = cN >= 1 and c1Depth >= c1Min and c1Depth <= c1Max
 bool score3OK = activeMode != 0 and baseCount + 1 <= 2
 
 // C1 切 3 等份：做多 顶部=Pivot Area 中间=Cheap 底部=Low Cheap（做空镜像）
-float c1A = cN >= 1 ? array.get(cStart, 0) : na
-float c1B = cN >= 1 ? array.get(cEnd, 0) : na
 float zThird = (c1A - c1B) / 3
 float z1 = c1A - zThird
 float z2 = c1A - 2 * zThird
 
 // 加分4：最后一段收缩的高点(做多)/低点(做空) 落在 Pivot Area 内
-bool score4OK = cN >= 2 and (isLong ? array.last(cStart) >= z1 : array.last(cStart) <= z1)
+bool score4OK = cN >= 2 and (isLong ? lastStart >= z1 : lastStart <= z1)
 int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
-bool buyZone = cN >= 2 and array.last(cDepth) <= buyPct
+bool buyZone = cN >= 2 and lastDepth <= buyPct
 
 // ============================ V · Volume ===================================
 bool structVolOK = mode != 0 and (isLong ? upVolDominant : dnVolDominant)
@@ -412,9 +426,9 @@ if barstate.islast
                 depthTxt += "C" + str.tostring(i + 1) + " " + str.tostring(array.get(cDepth, i), "#.##") + "%  "
         else
             depthTxt := "—"
-        string c1maTxt = cN >= 1 ? (array.get(cTouch, 0) ? "✔ 有动到" : "✘ 没动到") : "—"
-        string buyTxt  = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(array.last(cDepth), "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
-             "未到（末段 " + str.tostring(array.last(cDepth), "#.##") + "%）") : "结构未成立（需 ≥2 段）"
+        string c1maTxt = cN >= 1 ? (c1Touched ? "✔ 有动到" : "✘ 没动到") : "—"
+        string buyTxt  = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(lastDepth, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
+             "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"
         string zoneTxt = cN >= 1 ? (isLong ?
              (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheap（中间 1/3）" : "Low Cheap（底部 1/3）") :
              (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheap（中间 1/3）" : "Low Cheap（顶部 1/3）")) : "—"
@@ -424,7 +438,7 @@ if barstate.islast
              " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") + " = " + str.tostring(cScore) + "/10"
         r := f_cell(r, "C · 目前 Base", baseTxt, countPaused ? color.gray : baseCount + 1 <= 2 ? color.teal : color.orange)
         r := f_cell(r, "C · 收缩段数", str.tostring(cN) + "（需 2~6）| " + depthTxt, cN >= 2 ? color.teal : color.gray)
-        r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and array.get(cTouch, 0) ? color.teal : color.gray)
+        r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
         r := f_cell(r, "C · 买点 (≤10%)", buyTxt, buyZone ? color.green : color.gray)
         r := f_cell(r, "C · 价格位置", zoneTxt, zoneCol)
         r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
