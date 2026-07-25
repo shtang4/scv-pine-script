@@ -167,9 +167,9 @@ if barstate.islast
     volTxt   = upVolDominant ? "阳烛量放大" : dnVolDominant ? "阴烛量放大" : lowVolume ? "交易量低迷" : "正常"
     // 只显示当前方向相关的扣分：Stage 4（做空期）看升破，其他看跌破（多头 = 跌破才扣）
     bool alignPenActive = stage == 4 ? shortAlignPen > 0 : longAlignPen > 0
-    alignPenTxt = not alignPenActive ? "" :
-         stage == 4 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）"
-                    : "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）"
+    string alignPenTxt = ""
+    if alignPenActive
+        alignPenTxt := stage == 4 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）" : "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）"
     stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + alignPenTxt
     mtfTxt   = sameTrendUp ? "同趋上 ✔" : sameTrendDown ? "同趋下 ✔" : "不同向 ✘"
     rsTxt    = rsNearHigh ? "接近新高（强）" : rsNearLow ? "接近新低（弱）" : "中性"
