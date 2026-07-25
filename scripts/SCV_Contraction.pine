@@ -5,8 +5,11 @@
 //  侦测方式：摆动高低点（swing high / swing low）——对应手动画法
 //    做多（多头排列）：每段 C = 一个摆动高点 → 下一个摆动低点
 //        深度 =（摆动高 − 摆动低）÷ 摆动高 × 100%
-//        C1 动到 50 均线 · 波段缩小（深度递减）· 底部抬高（低点逐个抬高）
-//        结构 = 2~6 段；买点 = 末段 ≤ 10%；Base = 突破 C1 高点
+//        C1 动到 50 均线 · 底部抬高（低点逐个抬高）· 结构 = 2~6 段
+//        买点 = 末段 ≤ 10%；Base = 突破 C1 高点
+//        级联规则：某段 pivot low 跌破上一段 pivot low → 这个低点变成那一段的
+//        低点（保留该段高点），比它更深的段清掉（例：C3 跌破 C2 → C3 低点变成
+//        C2 低点）。「波段缩小」不再是硬性条件，只作加分项 1。
 //    做空（空头排列）：镜像 —— 每段 C = 摆动低点 → 摆动高点；Base = 跌破 C1 低点
 //    参考实例：Base1  C1 −31.95% → C2 −10.22%
 //              Base2  C1 −26.97% → C2 −24.41% → C3 −9.21%
@@ -77,28 +80,67 @@ else if trendFlat
     stage := lastTrendStage == 2 ? 3 : 1
 
 // ========================= 结构（C1~C6）存储 ===============================
-var cStart = array.new<float>()   // 每段收缩的波段起点：做多=波段高点，做空=波段低点
-var cEnd   = array.new<float>()   // 每段收缩的终点：做多=回调低点，做空=反弹高点
-var cDepth = array.new<float>()   // 每段收缩深度 (%)
-var cTouch = array.new<bool>()    // 该段是否动到 50 均线
+var cStart    = array.new<float>()  // 每段起点：做多=波段高点，做空=波段低点
+var cStartBar = array.new<int>()    // 起点K线
+var cEnd      = array.new<float>()  // 每段终点：做多=回调低点，做空=反弹高点
+var cEndBar   = array.new<int>()    // 终点K线
+var cDepth    = array.new<float>()  // 每段深度 (%)
+var cTouch    = array.new<bool>()   // 该段是否动到 50 均线
+var cBoxes    = array.new<box>()    // 已画的收缩框
+var cLabels   = array.new<label>()  // 已画的收缩标签
+
+f_wipeDraw() =>
+    for b in cBoxes
+        box.delete(b)
+    for l in cLabels
+        label.delete(l)
+    array.clear(cBoxes)
+    array.clear(cLabels)
 
 f_clear() =>
     array.clear(cStart)
+    array.clear(cStartBar)
     array.clear(cEnd)
+    array.clear(cEndBar)
     array.clear(cDepth)
     array.clear(cTouch)
+    f_wipeDraw()
 
-f_push(float s, float e, float d, bool t) =>
+f_push(float s, int sb, float e, int eb, float d, bool t) =>
     array.push(cStart, s)
+    array.push(cStartBar, sb)
     array.push(cEnd, e)
+    array.push(cEndBar, eb)
     array.push(cDepth, d)
     array.push(cTouch, t)
+
+f_popLast() =>
+    array.pop(cStart)
+    array.pop(cStartBar)
+    array.pop(cEnd)
+    array.pop(cEndBar)
+    array.pop(cDepth)
+    array.pop(cTouch)
+
+// 依结构状态重画所有收缩框 + 标签（级联删段时旧框才不会残留）
+f_redraw(bool longDir) =>
+    f_wipeDraw()
+    int sz = array.size(cDepth)
+    if sz > 0
+        for i = 0 to sz - 1
+            float s  = array.get(cStart, i)
+            float e  = array.get(cEnd, i)
+            int   sb = array.get(cStartBar, i)
+            int   eb = array.get(cEndBar, i)
+            float d  = array.get(cDepth, i)
+            if showBoxes
+                array.push(cBoxes, box.new(sb, math.max(s, e), eb, math.min(s, e), border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90)))
+            array.push(cLabels, label.new(eb, e, "C" + str.tostring(i + 1) + " " + str.tostring(d, "#.##") + "%", style = longDir ? label.style_label_up : label.style_label_down, color = color.new(color.blue, 25), textcolor = color.white, size = size.small))
 
 // ============================ 侦测状态 =====================================
 var int   activeMode     = 0    // 1=做多侦测, -1=做空侦测, 0=暂停
 var float pendingHigh    = na   // 下一段收缩的起点（做多=最近摆动高点，做空=最近摆动低点）
 var int   pendingHighBar = na
-var int   c1HighBar      = na   // C1 高点（基底峰值）所在K线，跌破重置时保留
 var int   baseCount      = 0    // 已突破的 Base 数量（从 Stage 2 / Stage 4 开始数）
 var float lastBaseEnd    = na   // 前一个已突破 Base 的低点（做多）/ 高点（做空）
 var string lastBaseTxt   = "—"  // 最近一次 Base 突破纪录
@@ -111,7 +153,6 @@ if mode != activeMode
     lastBaseEnd    := na
     pendingHigh    := na
     pendingHighBar := na
-    c1HighBar      := na
 
 bool isLong  = activeMode == 1
 bool evtBreak = false   // 本根K线发生 Base 突破
@@ -151,54 +192,38 @@ if activeMode != 0
         bool touchedMA = isLong ? low[pivStrength] <= ma50[pivStrength] * (1 + tol50 / 100) : high[pivStrength] >= ma50[pivStrength] * (1 - tol50 / 100)
 
         if depth >= minLegPct
-            bool  pushed   = false
-            float segStart = pendingHigh     // 本段起点（画框用）
-            int   segLeft  = pendingHighBar
+            bool changed = false
             if array.size(cDepth) == 0
                 // C1：要求动到 50 均线（可关闭）
                 if not requireTouch50 or touchedMA
-                    f_push(pendingHigh, legEnd, depth, touchedMA)
-                    c1HighBar := pendingHighBar
-                    pushed := true
-            else
-                float baseHigh  = array.get(cStart, 0)   // C1 高点 = 基底峰值
-                bool  baseTouch = array.get(cTouch, 0)
-                float c1Low     = array.get(cEnd, 0)     // C1 低点
-                float prevDepth = array.last(cDepth)
-                float prevEnd   = array.last(cEnd)
-                bool undercutC1 = isLong ? legEnd < c1Low : legEnd > c1Low
-                // 结构规则：最多 6 段 · 波段缩小 · 底部抬高（做多）/ 顶部抬低（做空）
-                bool seqOK = array.size(cDepth) < 6 and depth < prevDepth and (isLong ? legEnd > prevEnd : legEnd < prevEnd)
-                if undercutC1
-                    // 跌破 C1 低点 → 这个低点变成新的 C1 低点，保留 C1 高点，清掉中间段
-                    float newDepth = isLong ? (baseHigh - legEnd) / baseHigh * 100 : (legEnd - baseHigh) / baseHigh * 100
-                    f_clear()
-                    f_push(baseHigh, legEnd, newDepth, baseTouch or touchedMA)
-                    segStart := baseHigh
-                    segLeft  := c1HighBar             // C1 高点位置保持不变
-                    pushed := true
-                else if seqOK
-                    f_push(pendingHigh, legEnd, depth, touchedMA)
-                    pushed := true
+                    f_push(pendingHigh, pendingHighBar, legEnd, pivBar, depth, touchedMA)
+                    changed := true
                 else
-                    // 其他违规（深度没缩小/低点没抬高但仍在 C1 上方）→ 当作新的 C1 重新开始
-                    f_clear()
-                    if not requireTouch50 or touchedMA
-                        f_push(pendingHigh, legEnd, depth, touchedMA)
-                        c1HighBar := pendingHighBar
-                        pushed := true
-            if pushed
-                int n = array.size(cDepth)
-                if showBoxes
-                    box.new(segLeft, math.max(segStart, legEnd), pivBar, math.min(segStart, legEnd),
-                         border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90))
-                label.new(pivBar, legEnd, "C" + str.tostring(n) + " " + str.tostring(array.get(cDepth, n - 1), "#.##") + "%",
-                     style = isLong ? label.style_label_up : label.style_label_down,
-                     color = color.new(color.blue, 25), textcolor = color.white, size = size.small)
+                    label.new(pivBar, legEnd, "✗ 未动到50均线", style = isLong ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
             else
-                label.new(pivBar, legEnd, "✗ 未动到50均线",
-                     style = isLong ? label.style_label_up : label.style_label_down,
-                     color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
+                float lastEnd = array.last(cEnd)
+                bool extend = isLong ? legEnd > lastEnd : legEnd < lastEnd   // 底部抬高（做多）/ 顶部抬低（做空）
+                if extend
+                    // 抬高的低点 → 新的一段（最多 6 段）
+                    if array.size(cDepth) < 6
+                        f_push(pendingHigh, pendingHighBar, legEnd, pivBar, depth, touchedMA)
+                        changed := true
+                else
+                    // 跌破上一段低点 → 级联替换：这个低点变成它所落在那一段的低点，
+                    // 保留该段的高点，清掉比它更深的段（例：C3 跌破 C2 → C3 低点变成 C2 低点）
+                    while array.size(cDepth) >= 2 and (isLong ? legEnd < array.get(cEnd, array.size(cDepth) - 2) : legEnd > array.get(cEnd, array.size(cDepth) - 2))
+                        f_popLast()
+                    int   li        = array.size(cDepth) - 1
+                    float keptHigh  = array.get(cStart, li)   // 保留该段高点
+                    bool  keptTouch = array.get(cTouch, li)
+                    float newDepth  = isLong ? (keptHigh - legEnd) / keptHigh * 100 : (legEnd - keptHigh) / keptHigh * 100
+                    array.set(cEnd,   li, legEnd)
+                    array.set(cEndBar, li, pivBar)
+                    array.set(cDepth, li, newDepth)
+                    array.set(cTouch, li, keptTouch or touchedMA)
+                    changed := true
+            if changed
+                f_redraw(isLong)
         // 结算完这一段 → 等待下一个摆动高点（做空：摆动低点）
         pendingHigh    := na
         pendingHighBar := na
@@ -270,7 +295,6 @@ if activeMode != 0 and array.size(cDepth) >= 1
         f_clear()
         pendingHigh    := na
         pendingHighBar := na
-        c1HighBar      := na
 
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
