@@ -45,6 +45,7 @@ showBoxes      = input.bool(true,  "画出每段收缩框",           group = gr
 grpScore = "③ 加分项目"
 c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
 c1Max     = input.float(35.0, "加分2：C1 最大深度 (%)", group = grpScore)
+c1Pen200  = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, group = grpScore, tooltip = "C1 低点(做多)深到碰/跌破 200均线 = 回调太深太弱，扣分（做空镜像）")
 showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
 grpStage = "④ Stage（用于 Base 计数）"
@@ -338,7 +339,9 @@ float z2 = c1A - 2 * zThird                       // Cheap 与 Low Cheap 的分�
 //   做多：最后一段收缩的高点 落在 Pivot Area（顶部 1/3）内
 //   做空：最后一段收缩的低点 落在 Pivot Area（底部 1/3）内
 bool score4OK = cN >= 2 and (isLong ? lastStart >= z1 : lastStart <= z1)
-int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
+// 扣分：C1 低点(做多)碰/跌破 200均线，或 C1 高点(做空)升到 200均线 = 回调太深太弱
+bool c1Reach200 = cN >= 1 and (isLong ? c1B <= ma200 * (1 + tol50 / 100) : c1B >= ma200 * (1 - tol50 / 100))
+int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0) - (c1Reach200 ? c1Pen200 : 0)
 
 // 买点条件：结构成立（≥2段）且最后一段收缩 ≤ 10%
 bool buyZone = cN >= 2 and lastDepth <= buyPct
@@ -424,5 +427,5 @@ if barstate.islast
     f_cell(8,  "加分2 C1在20-35% (+3)", score2OK ? "✔" : "✘", score2OK ? color.green : color.gray)
     f_cell(9,  "加分3 Base在1或2 (+2)", score3OK ? "✔" : "✘", score3OK ? color.green : color.gray)
     f_cell(10, "加分4 突破区=Pivot Area (+2)", score4OK ? "✔" : "✘", score4OK ? color.green : color.gray)
-    f_cell(11, "总分",         str.tostring(totalScore) + " / 10", totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
+    f_cell(11, "总分",         str.tostring(totalScore) + " / 10" + (c1Reach200 ? "（C1到200均线 -" + str.tostring(c1Pen200) + "）" : ""), totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
     f_cell(12, "最近 Base 突破", lastBaseTxt, color.gray)

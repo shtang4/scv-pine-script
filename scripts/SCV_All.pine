@@ -63,6 +63,7 @@ buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval
 showBoxes      = input.bool(true,  "画出每段收缩框",           group = grpC)
 c1Min          = input.float(20.0, "加分：C1 最小深度 (%)",    group = grpC)
 c1Max          = input.float(35.0, "加分：C1 最大深度 (%)",    group = grpC)
+c1Pen200       = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, group = grpC, tooltip = "C1 低点(做多)深到碰/跌破 200均线 = 回调太深太弱，扣分（做空镜像：C1 高点升到200均线）")
 showZones      = input.bool(true,  "显示 C1 三等份区域",       group = grpC)
 
 grpVol = "⑥ Volume"
@@ -432,7 +433,9 @@ float z2 = c1A - 2 * zThird
 
 // 加分4：最后一段收缩的高点(做多)/低点(做空) 落在 Pivot Area 内
 bool score4OK = cN >= 2 and (isLong ? lastStart >= z1 : lastStart <= z1)
-int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
+// 扣分：C1 低点(做多)碰/跌破 200均线，或 C1 高点(做空)升到 200均线 = 回调太深太弱
+bool c1Reach200 = cN >= 1 and (isLong ? c1B <= ma200 * (1 + tol50 / 100) : c1B >= ma200 * (1 - tol50 / 100))
+int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0) - (c1Reach200 ? c1Pen200 : 0)
 bool buyZone = cN >= 2 and lastDepth <= buyPct
 
 // ============================ V · Volume ===================================
@@ -573,7 +576,8 @@ if barstate.islast
         color zoneCol = cN >= 1 ? (isLong ? (close >= z1 ? color.green : close >= z2 ? color.orange : color.blue) :
              (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
         string cScoreTxt = "收缩合理" + (score1OK ? "✔" : "✘") + " C1区间" + (score2OK ? "✔" : "✘") +
-             " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") + " = " + str.tostring(cScore) + "/10"
+             " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") +
+             (c1Reach200 ? " C1到200-" + str.tostring(c1Pen200) : "") + " = " + str.tostring(cScore) + "/10"
         r := f_cell(r, "C · 目前 Base", baseTxt, countPaused ? color.gray : baseCount + 1 <= 2 ? color.teal : color.orange)
         r := f_cell(r, "C · 收缩段数", str.tostring(cN) + "（需 2~6）| " + depthTxt, cN >= 2 ? color.teal : color.gray)
         r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
