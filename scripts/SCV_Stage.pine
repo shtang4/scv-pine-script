@@ -89,7 +89,8 @@ flatBars := trendFlat ? flatBars + 1 : 0
 stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
 
 // Stage 3 警讯：跌穿 150 均线
-stage3BreakMA = stage == 3 and ta.crossunder(close, ma150)
+bool crossDn150 = ta.crossunder(close, ma150)   // 每根都算，避免放在 and 后面被条件影响
+stage3BreakMA = stage == 3 and crossDn150
 
 // ========================== 均线排列 =======================================
 bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列
