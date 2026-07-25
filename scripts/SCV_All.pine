@@ -40,6 +40,8 @@ grpStage = "② Stage"
 slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
 flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage)
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
+alignPen1    = input.int(1,     "排列扣分：50跌破150",   minval = 0,  group = grpStage, tooltip = "多头排列里 50均线跌破 150均线 = 扣分（做空镜像：50升破150）")
+alignPen2    = input.int(2,     "排列大扣分：50跌破200", minval = 0,  group = grpStage, tooltip = "50均线跌破 200均线 = 大扣分（比跌破150更严重）")
 
 grpRS = "③ RS Rating（相对强度）"
 rsSymbol   = input.symbol("SP:SPX", "对比指数",          group = grpRS)
@@ -143,9 +145,13 @@ smallSlope    = request.security(syminfo.tickerid, smallTF, f_slope150())
 sameTrendUp   = bigSlope > flatPct and smallSlope > flatPct
 sameTrendDown = bigSlope < -flatPct and smallSlope < -flatPct
 
-// —— S 加分 ——
-int sLongScore = (rsNearHigh ? 3 : 0) + (stage == 2 and bullStack ? 2 : 0) + (sameTrendUp ? 1 : 0)
-int sShortScore = (rsNearLow ? 3 : 0) + (stage == 4 and bearStack ? 2 : 0) + (sameTrendDown ? 1 : 0)
+// —— 多头/空头排列品质：50 跌破 150 扣分，跌破 200 大扣分（做空镜像） ——
+int longAlignPen  = ma50 < ma200 ? alignPen2 : ma50 < ma150 ? alignPen1 : 0
+int shortAlignPen = ma50 > ma200 ? alignPen2 : ma50 > ma150 ? alignPen1 : 0
+
+// —— S 加分（含排列扣分） ——
+int sLongScore = (rsNearHigh ? 3 : 0) + (stage == 2 and bullStack ? 2 : 0) + (sameTrendUp ? 1 : 0) - longAlignPen
+int sShortScore = (rsNearLow ? 3 : 0) + (stage == 4 and bearStack ? 2 : 0) + (sameTrendDown ? 1 : 0) - shortAlignPen
 
 // —— 新图 / 旧图 ——
 isOldChart = last_bar_index + 1 >= len200
@@ -510,8 +516,10 @@ if barstate.islast
         r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
         r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
         r := f_cell(r, "S · 大小周期", mtfTxt + "（" + bigTF + " vs " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
-        r := f_cell(r, "S · 加分", "做多 " + str.tostring(sLongScore) + "/6 · 做空 " + str.tostring(sShortScore) + "/6",
-             sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : color.gray)
+        string alignPenTxt = longAlignPen > 0 ? "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）" :
+             shortAlignPen > 0 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）" : ""
+        r := f_cell(r, "S · 加分", "做多 " + str.tostring(sLongScore) + "/6 · 做空 " + str.tostring(sShortScore) + "/6" + alignPenTxt,
+             sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : longAlignPen > 0 or shortAlignPen > 0 ? color.orange : color.gray)
         r := f_cell(r, "S · 图表", isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图", isOldChart ? color.gray : color.orange)
 
     // —— C · Contraction ——
