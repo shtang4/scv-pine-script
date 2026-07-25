@@ -24,6 +24,8 @@ flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step =
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
 alignPen1    = input.int(1,     "排列扣分：50跌破150",   minval = 0,  group = grpStage, tooltip = "多头排列里 50均线跌破 150均线 = 扣分（做空镜像：50升破150）")
 alignPen2    = input.int(2,     "排列大扣分：50跌破200", minval = 0,  group = grpStage, tooltip = "50均线跌破 200均线 = 大扣分（比跌破150更严重）")
+cutDrawdown   = input.float(35.0, "Stage3 清仓跌幅 (%)",     minval = 1, step = 1, group = grpStage, tooltip = "从周期高点回落此% = 清仓信号。股票/加密 ≈35，其他资产 ≈10")
+noNewHighBars = input.int(20,     "Stage3 不创新高K线数",    minval = 2, group = grpStage, tooltip = "超过此根数没创周期新高 = 不再创新高")
 
 grpVol = "③ 交易量"
 volLen      = input.int(50,      "交易量均线长度",      minval = 1, group = grpVol)
@@ -92,6 +94,21 @@ stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
 bool crossDn150 = ta.crossunder(close, ma150)   // 每根都算，避免放在 and 后面被条件影响
 stage3BreakMA = stage == 3 and crossDn150
 
+// —— Stage 3/4：距周期高点回落（清仓门槛）+ 波动大不创新高 ——
+// 周期高点 = 本轮上涨的最高价；进入新的 Stage 1 底部时重置
+var float cycleHigh = na
+if stage == 1 and stage[1] != 1
+    cycleHigh := na
+cycleHigh := na(cycleHigh) ? high : math.max(cycleHigh, high)
+float drawdownPct = na(cycleHigh) or cycleHigh == 0 ? 0.0 : (cycleHigh - close) / cycleHigh * 100
+bool cutSignal = (stage == 3 or stage == 4) and drawdownPct >= cutDrawdown   // ≥35%(股/币) → 清仓
+
+// 波动大不创新高：ATR 高于其均值(波动大) 且 已超过 N 根没创周期新高
+float atrNow    = ta.atr(14)
+bool  highVol   = not na(atrNow) and atrNow > ta.sma(atrNow, 50)
+bool  noNewHigh = ta.barssince(high >= cycleHigh) >= noNewHighBars
+bool  stage3Choppy = stage == 3 and highVol and noNewHigh
+
 // ========================== 均线排列 =======================================
 bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列
 bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列
@@ -155,6 +172,9 @@ if stage != stage[1]
 
 // Stage 3 跌穿 150 均线警讯
 plotshape(stage3BreakMA, "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+// 清仓信号（距周期高点回落 ≥ 门槛）+ 波动大不创新高
+plotshape(cutSignal and not cutSignal[1], "清仓信号", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.normal, text = "清仓")
+plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
 
 // ============================ 信息面板 =====================================
 var table panel = table.new(position.top_right, 2, 10, border_width = 1, border_color = color.new(color.gray, 60))
@@ -164,6 +184,10 @@ f_cell(int row, string k, string v, color c) =>
 
 if barstate.islast
     stageTxt = "Stage " + str.tostring(stage) + (stage == 1 ? stage1Confirmed ? "（横盘已满半年）" : "（横盘未满半年）" : "")
+    if stage == 3 or stage == 4
+        stageTxt := stageTxt + " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
+    if stage3Choppy
+        stageTxt := stageTxt + " · 波动大不创新高"
     maTxt    = trendUp ? "趋上 ▲" : trendDown ? "趋下 ▼" : "趋平 —"
     volTxt   = upVolDominant ? "阳烛量放大" : dnVolDominant ? "阴烛量放大" : lowVolume ? "交易量低迷" : "正常"
     // 只显示当前方向相关的扣分：Stage 4（做空期）看升破，其他看跌破（多头 = 跌破才扣）
@@ -177,7 +201,7 @@ if barstate.islast
     tradeTxt = stage == 1 or stage == 3 ? "⛔ Stage " + str.tostring(stage) + " 不做任何交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
     chartTxt = isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图"
 
-    f_cell(0, "Stage",      stageTxt, stageColor)
+    f_cell(0, "Stage",      stageTxt, cutSignal ? color.red : stageColor)
     f_cell(1, "150均线",    maTxt + "  (" + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
     f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
     f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)

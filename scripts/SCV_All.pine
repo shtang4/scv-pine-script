@@ -42,6 +42,8 @@ flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step =
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
 alignPen1    = input.int(1,     "排列扣分：50跌破150",   minval = 0,  group = grpStage, tooltip = "多头排列里 50均线跌破 150均线 = 扣分（做空镜像：50升破150）")
 alignPen2    = input.int(2,     "排列大扣分：50跌破200", minval = 0,  group = grpStage, tooltip = "50均线跌破 200均线 = 大扣分（比跌破150更严重）")
+cutDrawdown   = input.float(35.0, "Stage3 清仓跌幅 (%)",     minval = 1, step = 1, group = grpStage, tooltip = "从周期高点回落此% = 清仓信号。股票/加密 ≈35，其他资产 ≈10")
+noNewHighBars = input.int(20,     "Stage3 不创新高K线数",    minval = 2, group = grpStage, tooltip = "超过此根数没创周期新高 = 不再创新高")
 
 grpRS = "③ RS Rating（相对强度）"
 rsSymbol   = input.symbol("SP:SPX", "对比指数",          group = grpRS)
@@ -109,6 +111,18 @@ var int flatBars = 0
 flatBars := trendFlat ? flatBars + 1 : 0
 bool crossDn150 = ta.crossunder(close, ma150)   // 每根都算，避免放在 and 后面被条件影响
 stage3BreakMA = stage == 3 and crossDn150
+
+// —— Stage 3/4：距周期高点回落（清仓门槛）+ 波动大不创新高 ——
+var float cycleHigh = na
+if stage == 1 and stage[1] != 1
+    cycleHigh := na
+cycleHigh := na(cycleHigh) ? high : math.max(cycleHigh, high)
+float drawdownPct = na(cycleHigh) or cycleHigh == 0 ? 0.0 : (cycleHigh - close) / cycleHigh * 100
+bool cutSignal = (stage == 3 or stage == 4) and drawdownPct >= cutDrawdown   // ≥35%(股/币) → 清仓
+float atrNow    = ta.atr(14)
+bool  highVol   = not na(atrNow) and atrNow > ta.sma(atrNow, 50)
+bool  noNewHigh  = ta.barssince(high >= cycleHigh) >= noNewHighBars
+bool  stage3Choppy = stage == 3 and highVol and noNewHigh
 
 // —— 量能统计（S 与 V 共用） ——
 bool isUp = close > open
@@ -475,6 +489,8 @@ if stage != stage[1]
     label.new(bar_index, high, "Stage " + str.tostring(stage), style = label.style_label_down,
          color = color.new(stageColor, 20), textcolor = color.white, size = size.small)
 plotshape(stage3BreakMA, "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+plotshape(cutSignal and not cutSignal[1], "清仓信号", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.normal, text = "清仓")
+plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
 
 // C1 突破位 + 三等份区域
 pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
@@ -508,8 +524,13 @@ if barstate.islast
     // —— 综合 ——
     string stackTxt = bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列"
     string tradeTxt = stage == 1 or stage == 3 ? "⛔ 不交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
-    r := f_cell(r, "SCV 综合", "Stage " + str.tostring(stage) + " · " + stackTxt + " · " + tradeTxt,
-         stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
+    string comboExtra = ""
+    if stage == 3 or stage == 4
+        comboExtra := " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
+    if stage3Choppy
+        comboExtra := comboExtra + " · 波动大不创新高"
+    r := f_cell(r, "SCV 综合", "Stage " + str.tostring(stage) + " · " + stackTxt + " · " + tradeTxt + comboExtra,
+         cutSignal ? color.red : stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
 
     // —— S · Stage ——
     if showS
