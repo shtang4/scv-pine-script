@@ -120,6 +120,8 @@ float volMA    = ta.sma(volume, volMALen)
 bool upVolDominant = avgUpVol > avgDnVol * volRatio   // 阳烛量放大
 bool dnVolDominant = avgDnVol > avgUpVol * volRatio   // 阴烛量放大
 bool lowVolume     = volume < volMA and volMA <= volMA[volLookback]  // 交易量低迷
+float cumUpC = ta.cum(isUp ? 1 : 0)   // 阳烛累计数（用于从 C1 起算烛数）
+float cumDnC = ta.cum(isDn ? 1 : 0)   // 阴烛累计数
 stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
 
 // —— RS 相对强度（近似 RS Rating） ——
@@ -343,7 +345,14 @@ bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
 // （日内图上直接 close*volume 算的是每根K线的金额，会比真正的日金额小很多）
 float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLB))
 bool liqOK = avgDollarVol > minDollarM * 1000000
-bool vBonusOK = mode != 0 and (isLong ? cntUp > cntDn : cntDn > cntUp)
+// 烛数加分：从 C1 起点算到现在（整个 base 期间）的阳烛 vs 阴烛数量
+int cntUpBase = 0
+int cntDnBase = 0
+if cN >= 1
+    int span = bar_index - array.get(cStartBar, 0)   // C1 高点到现在的K线数
+    cntUpBase := int(cumUpC - cumUpC[span])
+    cntDnBase := int(cumDnC - cumDnC[span])
+bool vBonusOK = mode != 0 and cN >= 1 and (isLong ? cntUpBase > cntDnBase : cntDnBase > cntUpBase)
 
 // ====================== C · Base 突破（需 V 一起看） ========================
 if activeMode != 0 and array.size(cDepth) >= 1
@@ -471,7 +480,7 @@ if barstate.islast
         string brkTxt = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
              "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
         string liqTxt = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
-        string vBonusTxt = mode == 0 ? "—" : (vBonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUp) + " vs 阴烛 " + str.tostring(cntDn) + " 根"
+        string vBonusTxt = mode == 0 or cN < 1 ? "结构未成立" : (vBonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUpBase) + " vs 阴烛 " + str.tostring(cntDnBase) + " 根（C1起算）"
         r := f_cell(r, "V · 结构量能", structTxt, structVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 突破量能", brkTxt, breakoutVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 日均交易金额", liqTxt, liqOK ? color.green : color.red)
