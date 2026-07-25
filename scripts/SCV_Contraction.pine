@@ -226,6 +226,10 @@ if activeMode != 0
             array.set(cEndBar, lli, bar_index)
             array.set(cDepth,  lli, newD)
             f_redraw(isLong)
+            // 低点还在加深 = 还在这段回调里 → 下一段的高点必须从这个更低点之后才开始追踪，
+            // 否则会把回调途中的反弹高当成新的一段，画出「嵌在里面」的 C
+            anchor   := na
+            swingEnd := na
 
     // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
     bool legEvent = isLong ? not na(pl) : not na(ph)
