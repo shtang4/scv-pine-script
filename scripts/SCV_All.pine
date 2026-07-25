@@ -232,6 +232,7 @@ var float anchorCumDn = na    // 锚点那根的阴烛累计数
 var float swingEnd    = na    // 收缩终点 = 起点以来的反向真实极值（做多=最低价，做空=最高价）
 var int   swingEndBar = na
 var float swingEndMA  = na    // 收缩终点那根的 50 均线值（快照，判断动到均线用）
+var bool  swingEndAlign = false  // 收缩终点那根是否为对应排列（C1 要求低点在排列内）
 var float c1CumUp     = na    // C1 起点的阳烛累计数（烛数加分从这里算起）
 var float c1CumDn     = na    // C1 起点的阴烛累计数
 var int   baseCount   = 0
@@ -276,10 +277,12 @@ if activeMode != 0
             swingEnd    := low
             swingEndBar := bar_index
             swingEndMA  := ma50
+            swingEndAlign := isLong ? bullStack : bearStack
         else if na(swingEnd) or low < swingEnd
             swingEnd    := low
             swingEndBar := bar_index
             swingEndMA  := ma50
+            swingEndAlign := isLong ? bullStack : bearStack
     else
         if na(anchor) or low < anchor
             anchor      := low
@@ -289,10 +292,12 @@ if activeMode != 0
             swingEnd    := high
             swingEndBar := bar_index
             swingEndMA  := ma50
+            swingEndAlign := isLong ? bullStack : bearStack
         else if na(swingEnd) or high > swingEnd
             swingEnd    := high
             swingEndBar := bar_index
             swingEndMA  := ma50
+            swingEndAlign := isLong ? bullStack : bearStack
 
     // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
     //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
@@ -328,8 +333,9 @@ if activeMode != 0
         if depth >= minLegPct
             bool changed = false
             if array.size(cDepth) == 0
-                // C1：要求「当前是对应排列」且「动到 50 均线」（之后的 C 都不检查这两项）
-                bool alignOK = isLong ? bullStack : bearStack
+                // C1：要求「低点(做多)/高点(做空)那根是对应排列」且「动到 50 均线」
+                //     C1 高点不必在排列内，只看低点那根（之后的 C 两项都不检查）
+                bool alignOK = swingEndAlign
                 if alignOK and (not requireTouch50 or touchedMA)
                     f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                     c1CumUp := anchorCumUp   // 记住 C1 起点的累计烛数，烛数加分从这里算起
