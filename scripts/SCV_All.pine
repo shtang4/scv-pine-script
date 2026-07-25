@@ -169,6 +169,7 @@ f_push(float s, float e, float d, bool t) =>
 var int   activeMode     = 0
 var float pendingHigh    = na    // 下一段收缩的起点（做多=最近摆动高点，做空=最近摆动低点）
 var int   pendingHighBar = na
+var int   c1HighBar      = na    // C1 高点（基底峰值）所在K线，跌破重置时保留
 var int   baseCount      = 0
 var float lastBaseEnd    = na
 var string lastBaseTxt   = "—"
@@ -180,6 +181,7 @@ if mode != activeMode
     lastBaseEnd    := na
     pendingHigh    := na
     pendingHighBar := na
+    c1HighBar      := na
 
 bool isLong  = activeMode == 1
 bool evtBreak = false
@@ -215,29 +217,46 @@ if activeMode != 0
         bool touchedMA = isLong ? low[pivStrength] <= ma50[pivStrength] * (1 + tol50 / 100) : high[pivStrength] >= ma50[pivStrength] * (1 - tol50 / 100)
 
         if depth >= minLegPct
-            bool pushed = false
+            bool  pushed   = false
+            float segStart = pendingHigh     // 本段起点（画框用）
+            int   segLeft  = pendingHighBar
             if array.size(cDepth) == 0
                 if not requireTouch50 or touchedMA
                     f_push(pendingHigh, legEnd, depth, touchedMA)
+                    c1HighBar := pendingHighBar
                     pushed := true
             else
+                float baseHigh  = array.get(cStart, 0)   // C1 高点 = 基底峰值
+                bool  baseTouch = array.get(cTouch, 0)
+                float c1Low     = array.get(cEnd, 0)     // C1 低点
                 float prevDepth = array.last(cDepth)
                 float prevEnd   = array.last(cEnd)
+                bool undercutC1 = isLong ? legEnd < c1Low : legEnd > c1Low
                 bool seqOK = array.size(cDepth) < 6 and depth < prevDepth and (isLong ? legEnd > prevEnd : legEnd < prevEnd)
-                if seqOK
+                if undercutC1
+                    // 跌破 C1 低点 → 这个低点变成新的 C1 低点，保留 C1 高点，清掉中间段
+                    float newDepth = isLong ? (baseHigh - legEnd) / baseHigh * 100 : (legEnd - baseHigh) / baseHigh * 100
+                    f_clear()
+                    f_push(baseHigh, legEnd, newDepth, baseTouch or touchedMA)
+                    segStart := baseHigh
+                    segLeft  := c1HighBar             // C1 高点位置保持不变
+                    pushed := true
+                else if seqOK
                     f_push(pendingHigh, legEnd, depth, touchedMA)
                     pushed := true
                 else
+                    // 其他违规 → 当作新的 C1 重新开始
                     f_clear()
                     if not requireTouch50 or touchedMA
                         f_push(pendingHigh, legEnd, depth, touchedMA)
+                        c1HighBar := pendingHighBar
                         pushed := true
             if pushed
                 int n = array.size(cDepth)
                 if showBoxes
-                    box.new(pendingHighBar, math.max(pendingHigh, legEnd), pivBar, math.min(pendingHigh, legEnd),
+                    box.new(segLeft, math.max(segStart, legEnd), pivBar, math.min(segStart, legEnd),
                          border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90))
-                label.new(pivBar, legEnd, "C" + str.tostring(n) + " " + str.tostring(depth, "#.##") + "%",
+                label.new(pivBar, legEnd, "C" + str.tostring(n) + " " + str.tostring(array.get(cDepth, n - 1), "#.##") + "%",
                      style = isLong ? label.style_label_up : label.style_label_down,
                      color = color.new(color.blue, 25), textcolor = color.white, size = size.small)
             else
@@ -246,11 +265,6 @@ if activeMode != 0
                      color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
         pendingHigh    := na
         pendingHighBar := na
-
-    // 结构失效：价格越过 C1 的收缩极值（分开写，数组空时不做 array.get）
-    if array.size(cDepth) >= 1
-        if isLong ? low < array.get(cEnd, 0) : high > array.get(cEnd, 0)
-            f_clear()
 
 // —— C 加分 & 买点 ——
 int cN = array.size(cDepth)
@@ -320,6 +334,7 @@ if activeMode != 0 and array.size(cDepth) >= 1
         f_clear()
         pendingHigh    := na
         pendingHighBar := na
+        c1HighBar      := na
 
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签
