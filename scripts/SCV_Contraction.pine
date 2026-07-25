@@ -25,7 +25,7 @@
 //  Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
 //    或退回 Stage 4/1（做空：升穿前 Base 高点或回到 Stage 2/1）→ 归零。
 // ============================================================================
-indicator("SCV - Contraction 收缩形态", shorttitle = "SCV-C", overlay = true, max_labels_count = 500, max_boxes_count = 200)
+indicator("SCV - Contraction 收缩形态", shorttitle = "SCV-C", overlay = true, max_labels_count = 500, max_boxes_count = 500)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线（判断多头/空头排列）"
@@ -97,14 +97,24 @@ f_wipeDraw() =>
     array.clear(cBoxes)
     array.clear(cLabels)
 
-f_clear() =>
+f_dataClear() =>
     array.clear(cStart)
     array.clear(cStartBar)
     array.clear(cEnd)
     array.clear(cEndBar)
     array.clear(cDepth)
     array.clear(cTouch)
+
+// 成形中重置：连同已画的框/标签一起删掉（重画用）
+f_clear() =>
+    f_dataClear()
     f_wipeDraw()
+
+// 结构结束（突破/翻转）：保留已画的 C 框与标签当历史，只停止追踪
+f_endStructure() =>
+    f_dataClear()
+    array.clear(cBoxes)
+    array.clear(cLabels)
 
 f_push(float s, int sb, float e, int eb, float d, bool t) =>
     array.push(cStart, s)
@@ -291,8 +301,11 @@ if activeMode != 0 and array.size(cDepth) >= 1
                  color = evtBuy ? (isLong ? color.new(color.green, 10) : color.new(color.red, 10)) : color.new(color.orange, 20),
                  textcolor = color.white, size = size.normal)
             lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · 加分 " + str.tostring(totalScore) + "/10" + (evtBuy ? " · ✅买点" : " · ⚠️非买点")
-        // 只有 1 段就被突破 = 没形成结构（结构需 C2-C6）→ 静默重置，重新找摆动点
-        f_clear()
+            // 真 base（≥2 段）突破后：保留 C 框/标签当历史
+            f_endStructure()
+        else
+            // 只有 C1 就被突破 = 没形成结构 → 清掉
+            f_clear()
         pendingHigh    := na
         pendingHighBar := na
 

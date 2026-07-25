@@ -27,7 +27,7 @@
 //    （合并版为主图指标，成交量柱请用 TradingView 内建的；放量突破以
 //     K线上方圆点标记）
 // ============================================================================
-indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500, max_boxes_count = 200)
+indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500, max_boxes_count = 500)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线"
@@ -166,14 +166,24 @@ f_wipeDraw() =>
     array.clear(cBoxes)
     array.clear(cLabels)
 
-f_clear() =>
+f_dataClear() =>
     array.clear(cStart)
     array.clear(cStartBar)
     array.clear(cEnd)
     array.clear(cEndBar)
     array.clear(cDepth)
     array.clear(cTouch)
+
+// 成形中重置：连同已画的框/标签一起删掉（重画用）
+f_clear() =>
+    f_dataClear()
     f_wipeDraw()
+
+// 结构结束（突破/翻转）：保留已画的 C 框与标签当历史，只停止追踪
+f_endStructure() =>
+    f_dataClear()
+    array.clear(cBoxes)
+    array.clear(cLabels)
 
 f_push(float s, int sb, float e, int eb, float d, bool t) =>
     array.push(cStart, s)
@@ -354,7 +364,11 @@ if activeMode != 0 and array.size(cDepth) >= 1
                  textcolor = color.white, size = size.normal)
             lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · C " + str.tostring(cScore) + "/10" +
                  (evtBuy ? " · ✅买点" : " · ⚠️非买点") + (breakoutVolOK ? " · 放量✔" : " · 放量✘")
-        f_clear()
+            // 真 base（≥2 段）突破后：保留 C 框/标签当历史
+            f_endStructure()
+        else
+            // 只有 C1 就被突破 = 没形成结构 → 清掉
+            f_clear()
         pendingHigh    := na
         pendingHighBar := na
 
