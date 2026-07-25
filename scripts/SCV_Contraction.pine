@@ -36,7 +36,7 @@ showMA = input.bool(true, "显示均线", group = grpMA)
 
 grpC = "② Contraction 侦测（摆动点）"
 pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大 = 只抓大波段、段数少、确认更慢；越小 = 抓小波段、更灵敏但杂讯多。对不上你手画的就调这个")
-minLegPct      = input.float(3.0,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略，不算一段收缩")
+minLegPct      = input.float(1.5,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
 requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
 buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
