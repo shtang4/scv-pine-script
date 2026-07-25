@@ -211,6 +211,22 @@ if activeMode != 0
             swingEndBar := bar_index
             swingEndMA  := ma50
 
+    // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
+    //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
+    if array.size(cDepth) >= 1
+        bool loBroken = isLong ? low < array.get(cEnd, array.size(cDepth) - 1) : high > array.get(cEnd, array.size(cDepth) - 1)
+        if loBroken
+            float newLo = isLong ? low : high
+            while array.size(cDepth) >= 2 and (isLong ? newLo < array.get(cEnd, array.size(cDepth) - 2) : newLo > array.get(cEnd, array.size(cDepth) - 2))
+                f_popLast()
+            int   lli    = array.size(cDepth) - 1
+            float keptHi = array.get(cStart, lli)
+            float newD   = isLong ? (keptHi - newLo) / keptHi * 100 : (newLo - keptHi) / keptHi * 100
+            array.set(cEnd,    lli, newLo)
+            array.set(cEndBar, lli, bar_index)
+            array.set(cDepth,  lli, newD)
+            f_redraw(isLong)
+
     // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
     bool legEvent = isLong ? not na(pl) : not na(ph)
     if legEvent and not na(anchor) and not na(swingEnd)
