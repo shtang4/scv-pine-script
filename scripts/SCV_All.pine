@@ -516,10 +516,13 @@ if barstate.islast
         r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
         r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
         r := f_cell(r, "S · 大小周期", mtfTxt + "（" + bigTF + " vs " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
-        string alignPenTxt = longAlignPen > 0 ? "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）" :
-             shortAlignPen > 0 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）" : ""
+        // 只显示当前方向相关的扣分：Stage 4（做空期）看升破，其他看跌破（多头 = 跌破才扣）
+        bool alignPenActive = stage == 4 ? shortAlignPen > 0 : longAlignPen > 0
+        string alignPenTxt = not alignPenActive ? "" :
+             stage == 4 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）"
+                        : "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）"
         r := f_cell(r, "S · 加分", "做多 " + str.tostring(sLongScore) + "/6 · 做空 " + str.tostring(sShortScore) + "/6" + alignPenTxt,
-             sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : longAlignPen > 0 or shortAlignPen > 0 ? color.orange : color.gray)
+             sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : alignPenActive ? color.orange : color.gray)
         r := f_cell(r, "S · 图表", isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图", isOldChart ? color.gray : color.orange)
 
     // —— C · Contraction ——
