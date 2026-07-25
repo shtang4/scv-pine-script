@@ -211,26 +211,6 @@ if activeMode != 0
             swingEndBar := bar_index
             swingEndMA  := ma50
 
-    // 1b) 高点被之后的K突破 → 突破的K变成该段高点（保留其低点）；同时突破更前面段
-    //     的高点就往前合并（与低点级联对称）。不碰 C1（突破 C1 高点 = Base 突破）
-    if array.size(cDepth) >= 1
-        float lastHi = array.get(cStart, array.size(cDepth) - 1)
-        float baseHi = array.get(cStart, 0)
-        bool hiBroken = isLong ? (high > lastHi and high < baseHi) : (low < lastHi and low > baseHi)
-        if hiBroken
-            float newHi = isLong ? high : low
-            while array.size(cDepth) >= 2 and (isLong ? newHi > array.get(cStart, array.size(cDepth) - 2) : newHi < array.get(cStart, array.size(cDepth) - 2))
-                f_popLast()
-            int   hli     = array.size(cDepth) - 1
-            float keptLow = array.get(cEnd, hli)                  // 保留该段低点
-            float newD    = isLong ? (newHi - keptLow) / newHi * 100 : (keptLow - newHi) / newHi * 100
-            array.set(cStart,    hli, newHi)
-            array.set(cStartBar, hli, bar_index)
-            array.set(cDepth,    hli, newD)
-            f_redraw(isLong)
-            anchor   := na                                       // 已并入 → 重置下一段追踪
-            swingEnd := na
-
     // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
     bool legEvent = isLong ? not na(pl) : not na(ph)
     if legEvent and not na(anchor) and not na(swingEnd)
@@ -251,16 +231,26 @@ if activeMode != 0
                     f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                     changed := true
             else
-                float lastEnd = array.last(cEnd)
-                bool extend = isLong ? legEnd > lastEnd : legEnd < lastEnd   // 底部抬高（做多）/ 顶部抬低（做空）
-                if extend
-                    // 抬高的低点 → 新的一段（最多 6 段）
-                    if array.size(cDepth) < 6
-                        f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
-                        changed := true
-                else
-                    // 跌破上一段低点 → 级联替换：这个低点变成它所落在那一段的低点，
-                    // 保留该段的高点，清掉比它更深的段（例：C3 跌破 C2 → C3 低点变成 C2 低点）
+                float lastHigh = array.get(cStart, array.size(cDepth) - 1)
+                float lastLow  = array.get(cEnd,   array.size(cDepth) - 1)
+                float baseHi   = array.get(cStart, 0)
+                bool reclaim = isLong ? (legStart > lastHigh and legStart < baseHi) : (legStart < lastHigh and legStart > baseHi)
+                bool breakLow = isLong ? legEnd < lastLow : legEnd > lastLow
+                if reclaim
+                    // 这段的高点反弹突破上一段高点 → 是「新的一段」（有自己的新低点，符合画C规矩）
+                    // → 用它自己的高和低替换被突破的段（不重用旧低）；突破更前面段就往前合并（不碰 C1）
+                    while array.size(cDepth) >= 2 and (isLong ? legStart > array.get(cStart, array.size(cDepth) - 2) : legStart < array.get(cStart, array.size(cDepth) - 2))
+                        f_popLast()
+                    int li = array.size(cDepth) - 1
+                    array.set(cStart,    li, legStart)
+                    array.set(cStartBar, li, legStartBar)
+                    array.set(cEnd,      li, legEnd)
+                    array.set(cEndBar,   li, legEndBar)
+                    array.set(cDepth,    li, depth)
+                    array.set(cTouch,    li, touchedMA)
+                    changed := true
+                else if breakLow
+                    // 跌破上一段低点 → 低点级联（保留高点）（例：C3 跌破 C2 → C3 低点变成 C2 低点）
                     while array.size(cDepth) >= 2 and (isLong ? legEnd < array.get(cEnd, array.size(cDepth) - 2) : legEnd > array.get(cEnd, array.size(cDepth) - 2))
                         f_popLast()
                     int   li        = array.size(cDepth) - 1
@@ -272,6 +262,11 @@ if activeMode != 0
                     array.set(cDepth, li, newDepth)
                     array.set(cTouch, li, keptTouch or touchedMA)
                     changed := true
+                else
+                    // 底部抬高（做多）/ 顶部抬低（做空）· 高点递减 → 新的一段（最多 6 段）
+                    if array.size(cDepth) < 6
+                        f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
+                        changed := true
             if changed
                 f_redraw(isLong)
         // 这段结束 → 从回调低点重新追踪下一段
