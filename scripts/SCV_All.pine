@@ -288,6 +288,26 @@ if activeMode != 0
             swingEndBar := bar_index
             swingEndMA  := ma50
 
+    // 1b) 高点被之后的K突破 → 突破的K变成该段高点（保留其低点）；同时突破更前面段
+    //     的高点就往前合并（与低点级联对称）。不碰 C1（突破 C1 高点 = Base 突破）
+    if array.size(cDepth) >= 1
+        float lastHi = array.get(cStart, array.size(cDepth) - 1)
+        float baseHi = array.get(cStart, 0)
+        bool hiBroken = isLong ? (high > lastHi and high < baseHi) : (low < lastHi and low > baseHi)
+        if hiBroken
+            float newHi = isLong ? high : low
+            while array.size(cDepth) >= 2 and (isLong ? newHi > array.get(cStart, array.size(cDepth) - 2) : newHi < array.get(cStart, array.size(cDepth) - 2))
+                f_popLast()
+            int   hli     = array.size(cDepth) - 1
+            float keptLow = array.get(cEnd, hli)                  // 保留该段低点
+            float newD    = isLong ? (newHi - keptLow) / newHi * 100 : (keptLow - newHi) / newHi * 100
+            array.set(cStart,    hli, newHi)
+            array.set(cStartBar, hli, bar_index)
+            array.set(cDepth,    hli, newD)
+            f_redraw(isLong)
+            anchor   := na                                       // 已并入 → 重置下一段追踪
+            swingEnd := na
+
     // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
     bool legEvent = isLong ? not na(pl) : not na(ph)
     if legEvent and not na(anchor) and not na(swingEnd)
