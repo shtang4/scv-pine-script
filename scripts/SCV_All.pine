@@ -67,7 +67,7 @@ volRatio     = input.float(1.2, "量大倍数",               minval = 1.0, step
 volMALen     = input.int(50,    "交易量均线长度",         minval = 1, group = grpVol)
 breakoutMult = input.float(1.5, "突破放量倍数",           minval = 1.0, step = 0.1, group = grpVol)
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpVol)
-dollarLB     = input.int(20,    "交易金额平均回看K线数",   minval = 1, group = grpVol)
+dollarLB     = input.int(20,    "交易金额平均回看天数",   minval = 1, group = grpVol, tooltip = "取几个交易日的日金额来平均")
 
 grpPanel = "⑦ 面板"
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
@@ -339,7 +339,9 @@ bool buyZone = cN >= 2 and lastDepth <= buyPct
 bool structVolOK = mode != 0 and (isLong ? upVolDominant : dnVolDominant)
 bool bigVol = volume > volMA * breakoutMult
 bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
-float avgDollarVol = ta.sma(close * volume, dollarLB)
+// 日均交易金额：不管图表周期，都强制取「天」的 收盘价×成交量 再平均
+// （日内图上直接 close*volume 算的是每根K线的金额，会比真正的日金额小很多）
+float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLB))
 bool liqOK = avgDollarVol > minDollarM * 1000000
 bool vBonusOK = mode != 0 and (isLong ? cntUp > cntDn : cntDn > cntUp)
 

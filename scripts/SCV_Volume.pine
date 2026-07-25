@@ -29,7 +29,7 @@ breakoutMult = input.float(1.5,  "突破放量倍数",        minval = 1.0, step
 
 grpLiq = "③ 流动性"
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpLiq, tooltip = "日均 收盘价×成交量 要超过此金额（单位=该股计价货币，美股即美元）")
-dollarLookback = input.int(20,  "交易金额平均回看K线数",   minval = 1, group = grpLiq)
+dollarLookback = input.int(20,  "交易金额平均回看天数",   minval = 1, group = grpLiq, tooltip = "取几个交易日的日金额来平均")
 
 // ========================== 排列 / 方向 ====================================
 ma50  = ta.sma(close, len50)
@@ -63,8 +63,9 @@ bool  bigVol = volume > volMA * breakoutMult
 bool  breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)   // 做多要放量阳烛，做空要放量阴烛
 
 // —— 流动性：日均交易金额 ——
-float dollarVol    = close * volume
-float avgDollarVol = ta.sma(dollarVol, dollarLookback)
+// 不管图表周期（1小时/5分钟…），都强制取「天」的 收盘价×成交量 再平均，
+// 否则在日内图上算的是「每根K线」的金额，会比真正的日金额小很多
+float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLookback))
 bool  liqOK        = avgDollarVol > minDollarM * 1000000
 
 // —— 加分项目：阳烛多阴烛少（做多）/ 阳烛少阴烛多（做空） ——
