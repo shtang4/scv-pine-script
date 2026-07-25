@@ -45,6 +45,7 @@ showBoxes      = input.bool(true,  "画出每段收缩框",           group = gr
 grpScore = "③ 加分项目"
 c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
 c1Max     = input.float(35.0, "加分2：C1 最大深度 (%)", group = grpScore)
+shrinkTol = input.float(1.0,  "加分1：收缩合理容差 (± 前段一半)", minval = 0, step = 0.5, group = grpScore, tooltip = "每段要落在「前段一半 ± 此值」之内才算合理。太小(缩太多)或太大(缩太少)都不给分")
 c1Pen200  = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, group = grpScore, tooltip = "C1 低点(做多)深到碰/跌破 200均线 = 回调太深太弱，扣分（做空镜像）")
 showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
@@ -318,11 +319,13 @@ if cN >= 1
     lastStart := array.last(cStart)
     lastDepth := array.last(cDepth)
 
-// 加分1 (+3)：波段收缩合理 —— 每段 ≤ 前一段的一半 + 1%
+// 加分1 (+3)：波段收缩合理 —— 每段落在「前一段一半 ± 容差」之内（太小缩太多、太大缩太少都不给分）
 bool score1OK = cN >= 2
 if score1OK
     for i = 1 to cN - 1
-        if array.get(cDepth, i) > array.get(cDepth, i - 1) / 2 + 1
+        float half = array.get(cDepth, i - 1) / 2
+        float d    = array.get(cDepth, i)
+        if d > half + shrinkTol or d < half - shrinkTol
             score1OK := false
 // 加分2 (+3)：C1 深度在 20~35%
 bool score2OK = cN >= 1 and c1Depth >= c1Min and c1Depth <= c1Max
