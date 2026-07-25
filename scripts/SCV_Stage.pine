@@ -10,7 +10,7 @@
 //    Stage 4  150均线趋下 · 做空时期 · 趋势延续性强 · 周期开始循环
 //  Stage 1 & Stage 3 不做任何交易
 // ============================================================================
-indicator("SCV - Stage 阶段分析", shorttitle = "SCV-Stage", overlay = true, max_labels_count = 200)
+indicator("SCV - Stage 阶段分析", shorttitle = "SCV-Stage", overlay = true, max_labels_count = 200, max_bars_back = 1000)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线设置"

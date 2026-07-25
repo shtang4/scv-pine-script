@@ -27,7 +27,7 @@
 //    （合并版为主图指标，成交量柱请用 TradingView 内建的；放量突破以
 //     K线上方圆点标记）
 // ============================================================================
-indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500, max_boxes_count = 500)
+indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 1000)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线"
