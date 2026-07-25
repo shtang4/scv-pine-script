@@ -221,8 +221,13 @@ f_redraw(bool longDir) =>
 var int   activeMode  = 0
 var float anchor      = na    // 收缩起点 = 真实极值（做多=峰值高价，做空=谷值低价）
 var int   anchorBar   = na
+var float anchorCumUp = na    // 锚点那根的阳烛累计数（快照，避免动态回看）
+var float anchorCumDn = na    // 锚点那根的阴烛累计数
 var float swingEnd    = na    // 收缩终点 = 起点以来的反向真实极值（做多=最低价，做空=最高价）
 var int   swingEndBar = na
+var float swingEndMA  = na    // 收缩终点那根的 50 均线值（快照，判断动到均线用）
+var float c1CumUp     = na    // C1 起点的阳烛累计数（烛数加分从这里算起）
+var float c1CumDn     = na    // C1 起点的阴烛累计数
 var int   baseCount   = 0
 var float lastBaseEnd = na
 var string lastBaseTxt = "—"
@@ -255,24 +260,33 @@ float pl = ta.pivotlow(low,  pivStrength, pivStrength)
 
 if activeMode != 0
     // 1) 追踪真实极值：做多 anchor=最高价、swingEnd=峰值以来最低价；做空镜像
+    //    同时快照当根的累计烛数 / 50均线值，之后结算时直接用，不做动态回看
     if isLong
         if na(anchor) or high > anchor
             anchor      := high
             anchorBar   := bar_index
+            anchorCumUp := cumUpC
+            anchorCumDn := cumDnC
             swingEnd    := low
             swingEndBar := bar_index
+            swingEndMA  := ma50
         else if na(swingEnd) or low < swingEnd
             swingEnd    := low
             swingEndBar := bar_index
+            swingEndMA  := ma50
     else
         if na(anchor) or low < anchor
             anchor      := low
             anchorBar   := bar_index
+            anchorCumUp := cumUpC
+            anchorCumDn := cumDnC
             swingEnd    := high
             swingEndBar := bar_index
+            swingEndMA  := ma50
         else if na(swingEnd) or high > swingEnd
             swingEnd    := high
             swingEndBar := bar_index
+            swingEndMA  := ma50
 
     // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
     bool legEvent = isLong ? not na(pl) : not na(ph)
@@ -282,9 +296,8 @@ if activeMode != 0
         float legEnd      = swingEnd
         int   legEndBar   = swingEndBar
         float depth  = isLong ? (legStart - legEnd) / legStart * 100 : (legEnd - legStart) / legStart * 100
-        // 是否动到 50 均线（在收缩终点那根K线上判断）
-        float maAtEnd = ma50[bar_index - legEndBar]
-        bool touchedMA = isLong ? legEnd <= maAtEnd * (1 + tol50 / 100) : legEnd >= maAtEnd * (1 - tol50 / 100)
+        // 是否动到 50 均线（用收缩终点那根的均线快照，不做动态回看）
+        bool touchedMA = isLong ? legEnd <= swingEndMA * (1 + tol50 / 100) : legEnd >= swingEndMA * (1 - tol50 / 100)
 
         if depth >= minLegPct
             bool changed = false
@@ -293,6 +306,8 @@ if activeMode != 0
                 bool alignOK = isLong ? bullStack : bearStack
                 if alignOK and (not requireTouch50 or touchedMA)
                     f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
+                    c1CumUp := anchorCumUp   // 记住 C1 起点的累计烛数，烛数加分从这里算起
+                    c1CumDn := anchorCumDn
                     changed := true
             else
                 float lastEnd = array.last(cEnd)
@@ -365,12 +380,12 @@ bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
 float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLB))
 bool liqOK = avgDollarVol > minDollarM * 1000000
 // 烛数加分：从 C1 起点算到现在（整个 base 期间）的阳烛 vs 阴烛数量
+// 用 C1 起点的累计烛数快照差分，避免动态回看
 int cntUpBase = 0
 int cntDnBase = 0
-if cN >= 1
-    int span = bar_index - array.get(cStartBar, 0)   // C1 高点到现在的K线数
-    cntUpBase := int(cumUpC - cumUpC[span])
-    cntDnBase := int(cumDnC - cumDnC[span])
+if cN >= 1 and not na(c1CumUp)
+    cntUpBase := int(cumUpC - c1CumUp)
+    cntDnBase := int(cumDnC - c1CumDn)
 bool vBonusOK = mode != 0 and cN >= 1 and (isLong ? cntUpBase > cntDnBase : cntDnBase > cntUpBase)
 
 // ====================== C · Base 突破（需 V 一起看） ========================
