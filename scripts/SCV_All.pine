@@ -11,10 +11,11 @@
 //    旧图（K线数够 200 均线）看天图；新图只有 50 均线 → 看 4 小时图。
 //
 //  ── C · Contraction ────────────────────────────────────────────────────
-//    做多（多头排列）：C = 回调中出现连续 3 根阴烛/变盘线；C1 动到 50 均线；
+//    以摆动高低点(swing high/low)切段——对应手动画法。做多（多头排列）：
+//    每段 C = 摆动高点 → 下一个摆动低点，深度=(高-低)/高；C1 动到 50 均线；
 //    波段缩小·底部抬高；结构 = 2~6 段；买点 = 末段 ≤ 10%；Base = 突破 C1 高点。
 //    做空镜像。C1 切 3 等份：靠突破位 1/3 = Pivot Area，中间 = Cheap，
-//    最远 1/3 = Low Cheap。
+//    最远 1/3 = Low Cheap。参考：Base2 C1 −26.97%→C2 −24.41%→C3 −9.21%。
 //    加分（满分10）：收缩合理(每段≤前段一半+1%) +3 · C1 在 20-35% +3 ·
 //    Base 在 1或2 +2 · 突破区 = Pivot Area(末段收缩的高点/低点在内) +2
 //    Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
@@ -26,7 +27,7 @@
 //    （合并版为主图指标，成交量柱请用 TradingView 内建的；放量突破以
 //     K线上方圆点标记）
 // ============================================================================
-indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500)
+indicator("SCV - Stage · Contraction · Volume", shorttitle = "SCV", overlay = true, max_labels_count = 500, max_boxes_count = 200)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线"
@@ -49,15 +50,16 @@ grpMTF = "④ 大小周期"
 bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）")
 smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "两个周期 150 均线同方向 = 大小周期同趋势")
 
-grpC = "⑤ Contraction"
-dojiPct        = input.float(30.0, "变盘线：实体 ≤ K线范围 (%)", minval = 1, maxval = 100, group = grpC)
-pivLen         = input.int(3,      "收缩极值确认K线数",          minval = 1, group = grpC)
-requireTouch50 = input.bool(true,  "C1 必须动到 50均线",         group = grpC)
-tol50          = input.float(2.0,  "50均线触碰容差 (%)",         minval = 0, step = 0.5, group = grpC)
-buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)",   minval = 0.5, step = 0.5, group = grpC)
-c1Min          = input.float(20.0, "加分：C1 最小深度 (%)",      group = grpC)
-c1Max          = input.float(35.0, "加分：C1 最大深度 (%)",      group = grpC)
-showZones      = input.bool(true,  "显示 C1 三等份区域",         group = grpC)
+grpC = "⑤ Contraction（摆动点）"
+pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大=只抓大波段、段数少、确认慢；越小=更灵敏但杂讯多。对不上手画的就调这个")
+minLegPct      = input.float(3.0,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略")
+requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
+tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
+buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
+showBoxes      = input.bool(true,  "画出每段收缩框",           group = grpC)
+c1Min          = input.float(20.0, "加分：C1 最小深度 (%)",    group = grpC)
+c1Max          = input.float(35.0, "加分：C1 最大深度 (%)",    group = grpC)
+showZones      = input.bool(true,  "显示 C1 三等份区域",       group = grpC)
 
 grpVol = "⑥ Volume"
 volLookback  = input.int(20,    "量能回看K线数",          minval = 1, group = grpVol, tooltip = "结构量能与烛数加分的统计期间")
@@ -164,31 +166,20 @@ f_push(float s, float e, float d, bool t) =>
     array.push(cDepth, d)
     array.push(cTouch, t)
 
-var int   activeMode = 0
-var float legExt     = na
-var float runLow     = na
-var int   runLowBar  = na
-var bool  inPullback = false
-var float pbExt      = na
-var int   pbExtBar   = na
-var float recExt     = na
-var int   runCount   = 0
-var int   maxRun     = 0
-var bool  touch50    = false
-var int   baseCount  = 0
-var float lastBaseEnd = na
-var string lastBaseTxt = "—"
+var int   activeMode     = 0
+var float pendingHigh    = na    // 下一段收缩的起点（做多=最近摆动高点，做空=最近摆动低点）
+var int   pendingHighBar = na
+var int   baseCount      = 0
+var float lastBaseEnd    = na
+var string lastBaseTxt   = "—"
 
 if mode != activeMode
-    activeMode := mode
+    activeMode     := mode
     f_clear()
-    baseCount   := 0
-    lastBaseEnd := na
-    legExt      := na
-    inPullback  := false
-    runCount    := 0
-    maxRun      := 0
-    touch50     := false
+    baseCount      := 0
+    lastBaseEnd    := na
+    pendingHigh    := na
+    pendingHighBar := na
 
 bool isLong  = activeMode == 1
 bool evtBreak = false
@@ -202,79 +193,59 @@ if activeMode != 0
         baseCount   := 0
         lastBaseEnd := na
 
-// —— 逐根侦测收缩 ——
+// —— 摆动点侦测（pivot）：每段 C = 摆动高点 → 摆动低点（做空镜像） ——
+float ph = ta.pivothigh(high, pivStrength, pivStrength)
+float pl = ta.pivotlow(low,  pivStrength, pivStrength)
+int   pivBar = bar_index - pivStrength
+
 if activeMode != 0
-    float body  = math.abs(close - open)
-    float rng   = high - low
-    bool isDoji = rng == 0 or body <= rng * dojiPct / 100
-    bool counterCandle = isLong ? (close < open or isDoji) : (close > open or isDoji)
+    // 1) 更新「下一段收缩的起点」：做多取最近摆动高点，做空取最近摆动低点
+    if isLong and not na(ph)
+        pendingHigh    := ph
+        pendingHighBar := pivBar
+    if not isLong and not na(pl)
+        pendingHigh    := pl
+        pendingHighBar := pivBar
 
-    if not inPullback
-        bool newExt = na(legExt) or (isLong ? high > legExt : low < legExt)
-        if newExt
-            legExt    := isLong ? high : low
-            runLow    := isLong ? low : high
-            runLowBar := bar_index
-            maxRun    := 0
-            runCount  := 0
-            touch50   := false
-        else if isLong ? low < runLow : high > runLow
-            runLow    := isLong ? low : high
-            runLowBar := bar_index
-        touch50  := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
-        runCount := counterCandle ? runCount + 1 : 0
-        maxRun   := math.max(maxRun, runCount)
-        if maxRun >= 3 and not na(legExt)
-            inPullback := true
-            pbExt      := runLow
-            pbExtBar   := runLowBar
-            recExt     := isLong ? high : low
-    else
-        if isLong ? low < pbExt : high > pbExt
-            pbExt    := isLong ? low : high
-            pbExtBar := bar_index
-            recExt   := isLong ? high : low
-        else
-            recExt := isLong ? math.max(recExt, high) : math.min(recExt, low)
-        touch50 := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
+    // 2) 反向摆动点出现 → 结算一段收缩
+    bool legEvent = isLong ? not na(pl) : not na(ph)
+    if legEvent and not na(pendingHigh)
+        float legEnd = isLong ? pl : ph
+        float depth  = isLong ? (pendingHigh - legEnd) / pendingHigh * 100 : (legEnd - pendingHigh) / pendingHigh * 100
+        bool touchedMA = isLong ? low[pivStrength] <= ma50[pivStrength] * (1 + tol50 / 100) : high[pivStrength] >= ma50[pivStrength] * (1 - tol50 / 100)
 
-        bool fullRecover = isLong ? high > legExt : low < legExt
-        bool quietSeal   = bar_index - pbExtBar >= pivLen
-        if fullRecover or quietSeal
-            float newDepth = isLong ? (legExt - pbExt) / legExt * 100 : (pbExt - legExt) / legExt * 100
+        if depth >= minLegPct
             bool pushed = false
             if array.size(cDepth) == 0
-                if not requireTouch50 or touch50
-                    f_push(legExt, pbExt, newDepth, touch50)
+                if not requireTouch50 or touchedMA
+                    f_push(pendingHigh, legEnd, depth, touchedMA)
                     pushed := true
             else
                 float prevDepth = array.last(cDepth)
                 float prevEnd   = array.last(cEnd)
-                bool seqOK = array.size(cDepth) < 6 and newDepth < prevDepth and (isLong ? pbExt > prevEnd : pbExt < prevEnd)
+                bool seqOK = array.size(cDepth) < 6 and depth < prevDepth and (isLong ? legEnd > prevEnd : legEnd < prevEnd)
                 if seqOK
-                    f_push(legExt, pbExt, newDepth, touch50)
+                    f_push(pendingHigh, legEnd, depth, touchedMA)
                     pushed := true
                 else
                     f_clear()
-                    if not requireTouch50 or touch50
-                        f_push(legExt, pbExt, newDepth, touch50)
+                    if not requireTouch50 or touchedMA
+                        f_push(pendingHigh, legEnd, depth, touchedMA)
                         pushed := true
             if pushed
                 int n = array.size(cDepth)
-                label.new(pbExtBar, pbExt, "C" + str.tostring(n) + " " + str.tostring(newDepth, "#.##") + "%",
+                if showBoxes
+                    box.new(pendingHighBar, math.max(pendingHigh, legEnd), pivBar, math.min(pendingHigh, legEnd),
+                         border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90))
+                label.new(pivBar, legEnd, "C" + str.tostring(n) + " " + str.tostring(depth, "#.##") + "%",
                      style = isLong ? label.style_label_up : label.style_label_down,
                      color = color.new(color.blue, 25), textcolor = color.white, size = size.small)
             else
-                label.new(pbExtBar, pbExt, "✗ 未动到50均线",
+                label.new(pivBar, legEnd, "✗ 未动到50均线",
                      style = isLong ? label.style_label_up : label.style_label_down,
                      color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
-            inPullback := false
-            legExt     := recExt
-            runLow     := isLong ? low : high
-            runLowBar  := bar_index
-            maxRun     := 0
-            runCount   := 0
-            touch50    := false
+        pendingHigh    := na
+        pendingHighBar := na
 
     // 结构失效：价格越过 C1 的收缩极值（分开写，数组空时不做 array.get）
     if array.size(cDepth) >= 1
@@ -347,13 +318,8 @@ if activeMode != 0 and array.size(cDepth) >= 1
             lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · C " + str.tostring(cScore) + "/10" +
                  (evtBuy ? " · ✅买点" : " · ⚠️非买点") + (breakoutVolOK ? " · 放量✔" : " · 放量✘")
         f_clear()
-        inPullback := false
-        legExt     := isLong ? high : low
-        runLow     := isLong ? low : high
-        runLowBar  := bar_index
-        maxRun     := 0
-        runCount   := 0
-        touch50    := false
+        pendingHigh    := na
+        pendingHighBar := na
 
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签

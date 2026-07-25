@@ -2,35 +2,27 @@
 // ============================================================================
 //  SCV 选股系统 — 第 2 部分：Contraction（收缩形态）
 //
-//  做多（多头排列时侦测）：
-//    C = 一段回调，段内必须出现「连续 3 根 阴烛/变盘线」（中间或之后出现都算）
-//    C1 动到 50 均线 · 波段缩小 · 底部抬高
-//    结构 = 2 ~ 6 段收缩（C2-C6）
-//    买点 = 最后一段收缩 ≤ 10%
-//    Base = 突破 C1 高点
-//  做空（空头排列时侦测）：完全镜像
-//    C = 一段反弹，段内必须出现「连续 3 根 阳烛/变盘线」
-//    C1 动到 50 均线 · 波段缩小 · 顶部抬低
-//    Base = 跌破 C1 低点
+//  侦测方式：摆动高低点（swing high / swing low）——对应手动画法
+//    做多（多头排列）：每段 C = 一个摆动高点 → 下一个摆动低点
+//        深度 =（摆动高 − 摆动低）÷ 摆动高 × 100%
+//        C1 动到 50 均线 · 波段缩小（深度递减）· 底部抬高（低点逐个抬高）
+//        结构 = 2~6 段；买点 = 末段 ≤ 10%；Base = 突破 C1 高点
+//    做空（空头排列）：镜像 —— 每段 C = 摆动低点 → 摆动高点；Base = 跌破 C1 低点
+//    参考实例：Base1  C1 −31.95% → C2 −10.22%
+//              Base2  C1 −26.97% → C2 −24.41% → C3 −9.21%
 //
 //  加分项目（总分 10）：
-//    1. 波段收缩合理：Cn ≤ C(n-1) 的一半 + 1%（例：C1 31.81% → C2 14.65% → C3 7.61%）+3
-//    2. C1 深度在 20~35%                                                        +3
-//    3. Base 还是在第 1 或 2 个                                                 +2
-//    4. 突破区域 = Pivot Area                                                   +2
+//    1. 波段收缩合理：Cn ≤ C(n-1) 的一半 + 1%   +3
+//    2. C1 深度在 20~35%                          +3
+//    3. Base 还是在第 1 或 2 个                    +2
+//    4. 突破区域 = Pivot Area                      +2
+//  Pivot Area / Cheap / Low Cheap：把 C1 深度切 3 等份
+//    做多：顶部=Pivot Area 中间=Cheap 底部=Low Cheap（做空镜像）
 //
-//  Pivot Area / Cheap / Low Cheap：把 C1 的深度切成 3 等份
-//    做多：顶部 = Pivot Area · 中间 = Cheap · 底部 = Low Cheap
-//    做空：底部 = Pivot Area · 中间 = Cheap · 顶部 = Low Cheap
-//
-//  Base 计数规则：
-//    做多：从 Stage 2 开始数；跌穿前一个 Base 的低点，或退回 Stage 4 / Stage 1
-//          → 计数重置。Base 3、4 以后 = late stage，失败率变高（所以加分项 3
-//          只给 Base 1 或 2）
-//    做空：镜像 —— 从 Stage 4 开始数；升穿前一个 Base 的高点，或回到
-//          Stage 2 / Stage 1 → 计数重置
+//  Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
+//    或退回 Stage 4/1（做空：升穿前 Base 高点或回到 Stage 2/1）→ 归零。
 // ============================================================================
-indicator("SCV - Contraction 收缩形态", shorttitle = "SCV-C", overlay = true, max_labels_count = 500)
+indicator("SCV - Contraction 收缩形态", shorttitle = "SCV-C", overlay = true, max_labels_count = 500, max_boxes_count = 200)
 
 // ============================== 输入 Inputs ===============================
 grpMA = "① 均线（判断多头/空头排列）"
@@ -39,12 +31,13 @@ len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 showMA = input.bool(true, "显示均线", group = grpMA)
 
-grpC = "② Contraction 侦测"
-dojiPct        = input.float(30.0, "变盘线：实体 ≤ K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "实体占整根K线范围的比例小于此值 = 变盘线")
-pivLen         = input.int(3,      "收缩极值确认K线数",          minval = 1, group = grpC, tooltip = "回调低点（做多）N 根K线内不再被跌破 = 这段收缩结束")
-requireTouch50 = input.bool(true,  "C1 必须动到 50均线",         group = grpC)
-tol50          = input.float(2.0,  "50均线触碰容差 (%)",         minval = 0, step = 0.5, group = grpC)
-buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)",   minval = 0.5, step = 0.5, group = grpC)
+grpC = "② Contraction 侦测（摆动点）"
+pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大 = 只抓大波段、段数少、确认更慢；越小 = 抓小波段、更灵敏但杂讯多。对不上你手画的就调这个")
+minLegPct      = input.float(3.0,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略，不算一段收缩")
+requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
+tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
+buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
+showBoxes      = input.bool(true,  "画出每段收缩框",           group = grpC)
 
 grpScore = "③ 加分项目"
 c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
@@ -102,32 +95,21 @@ f_push(float s, float e, float d, bool t) =>
     array.push(cTouch, t)
 
 // ============================ 侦测状态 =====================================
-var int   activeMode = 0      // 1=做多侦测, -1=做空侦测, 0=暂停
-var float legExt     = na     // 当前波段极值（做多=波段高点）
-var float runLow     = na     // 自波段极值以来的反向极值（做多=最低点）
-var int   runLowBar  = na
-var bool  inPullback = false  // 是否在收缩中
-var float pbExt      = na     // 收缩极值（做多=回调低点）
-var int   pbExtBar   = na
-var float recExt     = na     // 收缩极值之后的恢复极值（做多=反弹高点）→ 下一波段起点
-var int   runCount   = 0      // 当前连续 阴烛/变盘线（做多）数
-var int   maxRun     = 0      // 本波段内最大连续数（≥3 才算有效收缩）
-var bool  touch50    = false  // 本段回调是否动到 50 均线
-var int   baseCount  = 0      // 已突破的 Base 数量（从 Stage 2 / Stage 4 开始数）
-var float lastBaseEnd = na    // 前一个已突破 Base 的低点（做多）/ 高点（做空）
-var string lastBaseTxt = "—"  // 最近一次 Base 突破纪录
+var int   activeMode     = 0    // 1=做多侦测, -1=做空侦测, 0=暂停
+var float pendingHigh    = na   // 下一段收缩的起点（做多=最近摆动高点，做空=最近摆动低点）
+var int   pendingHighBar = na
+var int   baseCount      = 0    // 已突破的 Base 数量（从 Stage 2 / Stage 4 开始数）
+var float lastBaseEnd    = na   // 前一个已突破 Base 的低点（做多）/ 高点（做空）
+var string lastBaseTxt   = "—"  // 最近一次 Base 突破纪录
 
 // 排列改变 → 全部重置（Base 计数也重来）
 if mode != activeMode
-    activeMode := mode
+    activeMode     := mode
     f_clear()
-    baseCount   := 0
-    lastBaseEnd := na
-    legExt      := na
-    inPullback  := false
-    runCount    := 0
-    maxRun      := 0
-    touch50     := false
+    baseCount      := 0
+    lastBaseEnd    := na
+    pendingHigh    := na
+    pendingHighBar := na
 
 bool isLong  = activeMode == 1
 bool evtBreak = false   // 本根K线发生 Base 突破
@@ -143,91 +125,65 @@ if activeMode != 0
         baseCount   := 0
         lastBaseEnd := na
 
-// ============================ 逐根K线侦测 ==================================
+// ======================= 摆动点侦测（pivot） ===============================
+// pivot 在实际转折后 pivStrength 根K线才确认；确认值对应 pivStrength 根前那根K线
+float ph = ta.pivothigh(high, pivStrength, pivStrength)
+float pl = ta.pivotlow(low,  pivStrength, pivStrength)
+int   pivBar = bar_index - pivStrength
+
 if activeMode != 0
-    // 变盘线：实体很小的K线
-    float body  = math.abs(close - open)
-    float rng   = high - low
-    bool isDoji = rng == 0 or body <= rng * dojiPct / 100
-    // 做多：数 阴烛/变盘线；做空：数 阳烛/变盘线
-    bool counterCandle = isLong ? (close < open or isDoji) : (close > open or isDoji)
+    // 1) 更新「下一段收缩的起点」：做多取最近摆动高点，做空取最近摆动低点
+    if isLong and not na(ph)
+        pendingHigh    := ph
+        pendingHighBar := pivBar
+    if not isLong and not na(pl)
+        pendingHigh    := pl
+        pendingHighBar := pivBar
 
-    if not inPullback
-        // —— 波段进行中：更新波段极值 ——
-        bool newExt = na(legExt) or (isLong ? high > legExt : low < legExt)
-        if newExt
-            legExt    := isLong ? high : low
-            runLow    := isLong ? low : high
-            runLowBar := bar_index
-            maxRun    := 0
-            runCount  := 0
-            touch50   := false
-        else if isLong ? low < runLow : high > runLow
-            runLow    := isLong ? low : high
-            runLowBar := bar_index
-        touch50  := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
-        // 连续 阴烛/变盘线 计数（连续 3 根 = 收缩开始，中间或之后出现都算）
-        runCount := counterCandle ? runCount + 1 : 0
-        maxRun   := math.max(maxRun, runCount)
-        if maxRun >= 3 and not na(legExt)
-            inPullback := true
-            pbExt      := runLow
-            pbExtBar   := runLowBar
-            recExt     := isLong ? high : low
-    else
-        // —— 收缩进行中：更新收缩极值 / 恢复极值 ——
-        if isLong ? low < pbExt : high > pbExt
-            pbExt    := isLong ? low : high
-            pbExtBar := bar_index
-            recExt   := isLong ? high : low
-        else
-            recExt := isLong ? math.max(recExt, high) : math.min(recExt, low)
-        touch50 := touch50 or (isLong ? low <= ma50 * (1 + tol50 / 100) : high >= ma50 * (1 - tol50 / 100))
+    // 2) 反向摆动点出现 → 结算一段收缩
+    bool legEvent = isLong ? not na(pl) : not na(ph)
+    if legEvent and not na(pendingHigh)
+        float legEnd = isLong ? pl : ph                       // 波段终点（做多=低，做空=高）
+        float depth  = isLong ? (pendingHigh - legEnd) / pendingHigh * 100 : (legEnd - pendingHigh) / pendingHigh * 100
+        // C1 是否动到 50 均线（在摆动点那根K线上判断）
+        bool touchedMA = isLong ? low[pivStrength]  <= ma50[pivStrength] * (1 + tol50 / 100) : high[pivStrength] >= ma50[pivStrength] * (1 - tol50 / 100)
 
-        // 收缩结束的两种情况：
-        //  a) 完全收复：价格越过本段波段极值
-        //  b) 极值确认：收缩极值 pivLen 根K线内没再被刷新
-        bool fullRecover = isLong ? high > legExt : low < legExt
-        bool quietSeal   = bar_index - pbExtBar >= pivLen
-        if fullRecover or quietSeal
-            float newDepth = isLong ? (legExt - pbExt) / legExt * 100 : (pbExt - legExt) / legExt * 100
+        if depth >= minLegPct
             bool pushed = false
             if array.size(cDepth) == 0
-                // 这是 C1：要求动到 50 均线（可在设置关闭）
-                if not requireTouch50 or touch50
-                    f_push(legExt, pbExt, newDepth, touch50)
+                // C1：要求动到 50 均线（可关闭）
+                if not requireTouch50 or touchedMA
+                    f_push(pendingHigh, legEnd, depth, touchedMA)
                     pushed := true
             else
                 float prevDepth = array.last(cDepth)
                 float prevEnd   = array.last(cEnd)
                 // 结构规则：最多 6 段 · 波段缩小 · 底部抬高（做多）/ 顶部抬低（做空）
-                bool seqOK = array.size(cDepth) < 6 and newDepth < prevDepth and (isLong ? pbExt > prevEnd : pbExt < prevEnd)
+                bool seqOK = array.size(cDepth) < 6 and depth < prevDepth and (isLong ? legEnd > prevEnd : legEnd < prevEnd)
                 if seqOK
-                    f_push(legExt, pbExt, newDepth, touch50)
+                    f_push(pendingHigh, legEnd, depth, touchedMA)
                     pushed := true
                 else
                     // 规则被破坏 → 旧结构作废，这一段当作新的 C1 重新开始
                     f_clear()
-                    if not requireTouch50 or touch50
-                        f_push(legExt, pbExt, newDepth, touch50)
+                    if not requireTouch50 or touchedMA
+                        f_push(pendingHigh, legEnd, depth, touchedMA)
                         pushed := true
             if pushed
                 int n = array.size(cDepth)
-                label.new(pbExtBar, pbExt, "C" + str.tostring(n) + " " + str.tostring(newDepth, "#.##") + "%",
+                if showBoxes
+                    box.new(pendingHighBar, math.max(pendingHigh, legEnd), pivBar, math.min(pendingHigh, legEnd),
+                         border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90))
+                label.new(pivBar, legEnd, "C" + str.tostring(n) + " " + str.tostring(depth, "#.##") + "%",
                      style = isLong ? label.style_label_up : label.style_label_down,
                      color = color.new(color.blue, 25), textcolor = color.white, size = size.small)
             else
-                label.new(pbExtBar, pbExt, "✗ 未动到50均线",
+                label.new(pivBar, legEnd, "✗ 未动到50均线",
                      style = isLong ? label.style_label_up : label.style_label_down,
                      color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
-            // 收缩结束 → 新波段从恢复极值开始
-            inPullback := false
-            legExt     := recExt
-            runLow     := isLong ? low : high
-            runLowBar  := bar_index
-            maxRun     := 0
-            runCount   := 0
-            touch50    := false
+        // 结算完这一段 → 等待下一个摆动高点（做空：摆动低点）
+        pendingHigh    := na
+        pendingHighBar := na
 
     // —— 结构失效：价格越过 C1 的收缩极值（做多=跌破 C1 低点；数组空时不做 array.get）——
     if array.size(cDepth) >= 1
@@ -297,15 +253,10 @@ if activeMode != 0 and array.size(cDepth) >= 1
                  color = evtBuy ? (isLong ? color.new(color.green, 10) : color.new(color.red, 10)) : color.new(color.orange, 20),
                  textcolor = color.white, size = size.normal)
             lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · 加分 " + str.tostring(totalScore) + "/10" + (evtBuy ? " · ✅买点" : " · ⚠️非买点")
-        // 只有 1 段就被突破 = 没形成结构（结构需 C2-C6）→ 静默重置，波段继续
+        // 只有 1 段就被突破 = 没形成结构（结构需 C2-C6）→ 静默重置，重新找摆动点
         f_clear()
-        inPullback := false
-        legExt     := isLong ? high : low
-        runLow     := isLong ? low : high
-        runLowBar  := bar_index
-        maxRun     := 0
-        runCount   := 0
-        touch50    := false
+        pendingHigh    := na
+        pendingHighBar := na
 
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
