@@ -145,8 +145,9 @@ var int   baseCount      = 0    // 已突破的 Base 数量（从 Stage 2 / Stag
 var float lastBaseEnd    = na   // 前一个已突破 Base 的低点（做多）/ 高点（做空）
 var string lastBaseTxt   = "—"  // 最近一次 Base 突破纪录
 
-// 排列改变 → 全部重置（Base 计数也重来）
-if mode != activeMode
+// 方向锁定：出现明确多头/空头排列才设定或切换方向（翻成相反排列才清空重来）
+// 只有 C1 需要排列；C1 画出后即使排列暂时消失，也继续追踪 C2、C3…
+if mode != 0 and mode != activeMode
     activeMode     := mode
     f_clear()
     baseCount      := 0
@@ -194,12 +195,11 @@ if activeMode != 0
         if depth >= minLegPct
             bool changed = false
             if array.size(cDepth) == 0
-                // C1：要求动到 50 均线（可关闭）
-                if not requireTouch50 or touchedMA
+                // C1：要求「当前是对应排列」且「动到 50 均线」（之后的 C 都不检查这两项）
+                bool alignOK = isLong ? bullStack : bearStack
+                if alignOK and (not requireTouch50 or touchedMA)
                     f_push(pendingHigh, pendingHighBar, legEnd, pivBar, depth, touchedMA)
                     changed := true
-                else
-                    label.new(pivBar, legEnd, "✗ 未动到50均线", style = isLong ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 60), textcolor = color.white, size = size.tiny)
             else
                 float lastEnd = array.last(cEnd)
                 bool extend = isLong ? legEnd > lastEnd : legEnd < lastEnd   // 底部抬高（做多）/ 顶部抬低（做空）
@@ -325,7 +325,8 @@ if barstate.islast
             depthTxt += "C" + str.tostring(i + 1) + " " + str.tostring(array.get(cDepth, i), "#.##") + "%  "
     else
         depthTxt := "—"
-    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + " · Stage " + str.tostring(stage)
+    string alignLost = activeMode != 0 and mode != activeMode ? "（排列暂失·续追踪）" : ""
+    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + alignLost + " · Stage " + str.tostring(stage)
     string c1maTxt  = cN >= 1 ? (c1Touched ? "✔ 有动到" : "✘ 没动到") : "—"
     string buyTxt   = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(lastDepth, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
          "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"
