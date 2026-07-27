@@ -80,6 +80,8 @@ grpPanel = "⑦ 面板"
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
 showC = input.bool(true, "显示 Contraction 区块", group = grpPanel)
 showV = input.bool(true, "显示 Volume 区块",      group = grpPanel)
+panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
+panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 
 // ============================== 均线 & 排列 ================================
 ma50  = ta.sma(close, len50)
@@ -539,7 +541,7 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(position.top_right, 2, 20, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 20, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.small, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = size.small, text_halign = text.align_left)
