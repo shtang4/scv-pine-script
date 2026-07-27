@@ -360,7 +360,8 @@ float z2 = c1A - 2 * zThird                       // Cheap 与 Low Cheap 的分�
 bool score4OK = cN >= 2 and (isLong ? lastStart >= z1 : lastStart <= z1)
 // 扣分：C1 低点(做多)碰/跌破 200均线，或 C1 高点(做空)升到 200均线 = 回调太深太弱
 bool c1Reach200 = cN >= 1 and (isLong ? c1B <= ma200 * (1 + tol50 / 100) : c1B >= ma200 * (1 - tol50 / 100))
-int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0) - (c1Reach200 ? c1Pen200 : 0)
+// C1 到 200 均线的扣分不并进总分，只在面板单独显示
+int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
 
 // 买点条件：结构成立（≥2段）且最后一段收缩 ≤ 10%
 bool buyZone = cN >= 2 and lastDepth <= buyPct
@@ -446,5 +447,5 @@ if barstate.islast
     f_cell(8,  "加分2 C1在20-35% (+3)", score2OK ? "✔" : "✘", score2OK ? color.green : color.gray)
     f_cell(9,  "加分3 Base在1或2 (+2)", score3OK ? "✔" : "✘", score3OK ? color.green : color.gray)
     f_cell(10, "加分4 突破区=Pivot Area (+2)", score4OK ? "✔" : "✘", score4OK ? color.green : color.gray)
-    f_cell(11, "总分",         str.tostring(totalScore) + " / 10" + (c1Reach200 ? "（C1到200均线 -" + str.tostring(c1Pen200) + "）" : ""), totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
+    f_cell(11, "总分",         str.tostring(totalScore) + " / 10" + (c1Reach200 ? "  ⚠️C1到200均线 扣-" + str.tostring(c1Pen200) : ""), totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
     f_cell(12, "最近 Base 突破", lastBaseTxt, color.gray)

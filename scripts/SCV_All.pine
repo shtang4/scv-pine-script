@@ -459,7 +459,8 @@ float z2 = c1A - 2 * zThird
 bool score4OK = cN >= 2 and (isLong ? lastStart >= z1 : lastStart <= z1)
 // 扣分：C1 低点(做多)碰/跌破 200均线，或 C1 高点(做空)升到 200均线 = 回调太深太弱
 bool c1Reach200 = cN >= 1 and (isLong ? c1B <= ma200 * (1 + tol50 / 100) : c1B >= ma200 * (1 - tol50 / 100))
-int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0) - (c1Reach200 ? c1Pen200 : 0)
+// C1 到 200 均线的扣分不并进总分，只在面板单独显示
+int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (score4OK ? 2 : 0)
 bool buyZone = cN >= 2 and lastDepth <= buyPct
 
 // ============================ V · Volume ===================================
@@ -602,7 +603,7 @@ if barstate.islast
              (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
         string cScoreTxt = "收缩合理" + (score1OK ? "✔" : "✘") + " C1区间" + (score2OK ? "✔" : "✘") +
              " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") +
-             (c1Reach200 ? " C1到200-" + str.tostring(c1Pen200) : "") + " = " + str.tostring(cScore) + "/10"
+             " = " + str.tostring(cScore) + "/10" + (c1Reach200 ? "  ⚠️C1到200均线 扣-" + str.tostring(c1Pen200) : "")
         r := f_cell(r, "C · 目前 Base", baseTxt, countPaused ? color.gray : baseCount + 1 <= 2 ? color.teal : color.orange)
         r := f_cell(r, "C · 收缩段数", str.tostring(cN) + "（需 2~6）| " + depthTxt, cN >= 2 ? color.teal : color.gray)
         r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
