@@ -556,14 +556,25 @@ if barstate.islast
     // —— 综合 ——
     // 排列跟着当前图表周期算，括号里标出是哪个周期
     string stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + "（" + timeframe.period + "）"
-    string tradeTxt = stage == 1 or stage == 3 ? "⛔ 不交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
+    // 可否交易 = 天图 Stage 与当前周期排列是否一致：
+    //   Stage 1/3 → 不交易 (S)
+    //   Stage 2 + 多头排列 → 可交易 (多 S+)；Stage 2 + 空头排列 → 不交易 (多 S-)
+    //   Stage 4 + 空头排列 → 可交易 (空 S+)；Stage 4 + 多头排列 → 不交易 (空 S-)
+    string tradeTxt = "⛔ 不交易 (S)"
+    bool   tradeOK  = false
+    if stage == 2
+        tradeTxt := bullStack ? "✅ 可交易 (多 S+)" : "⛔ 不交易 (多 S-)"
+        tradeOK  := bullStack
+    else if stage == 4
+        tradeTxt := bearStack ? "✅ 可交易 (空 S+)" : "⛔ 不交易 (空 S-)"
+        tradeOK  := bearStack
     string comboExtra = ""
     if stage == 3 or stage == 4
         comboExtra := " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
     if stage3Choppy
         comboExtra := comboExtra + " · 波动大不创新高"
     r := f_cell(r, "SCV 综合", "Stage " + str.tostring(stage) + " · " + stackTxt + " · " + tradeTxt + comboExtra,
-         cutSignal ? color.red : stage == 2 ? color.green : stage == 4 ? color.red : color.orange)
+         cutSignal ? color.red : not tradeOK ? color.gray : stage == 2 ? color.green : color.red)
 
     // —— S · Stage ——
     if showS
