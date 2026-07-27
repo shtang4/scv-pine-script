@@ -44,6 +44,8 @@ bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定�
 grpPanel = "⑥ 面板"
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
+panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
+panelSize = panelSizeTxt == "极小" ? size.tiny : panelSizeTxt == "小" ? size.small : panelSizeTxt == "正常" ? size.normal : size.large
 
 // ============================== 均线 MAs ==================================
 ma50  = ta.sma(close, len50)
@@ -192,8 +194,8 @@ plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style =
 // ============================ 信息面板 =====================================
 var table panel = table.new(panelPos, 2, 10, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
-    table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
+    table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
 
 if barstate.islast
     stageTxt = "Stage " + str.tostring(stage) + (stage == 1 ? stage1Confirmed ? "（横盘已满半年）" : "（横盘未满半年）" : "")
