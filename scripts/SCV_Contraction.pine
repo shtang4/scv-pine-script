@@ -422,7 +422,7 @@ if barstate.islast
     else
         depthTxt := "—"
     string alignLost = activeMode != 0 and mode != activeMode ? "（排列暂失·续追踪）" : ""
-    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + alignLost + " · Stage " + str.tostring(stage)
+    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + "（" + timeframe.period + "）" + alignLost + " · Stage " + str.tostring(stage) + "（" + stageTF + "）"
     string c1maTxt  = cN >= 1 ? (c1Touched ? "✔ 有动到" : "✘ 没动到") : "—"
     string buyTxt   = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(lastDepth, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
          "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"

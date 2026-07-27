@@ -39,8 +39,7 @@ rsLookback = input.int(252,          "一年回看K线数",      minval = 1, gro
 rsNearPct  = input.float(2.0,        "接近新高/新低 (%)",  minval = 0.1, step = 0.1, group = grpRS, tooltip = "RS线距离一年新高/历史新高在此范围内 = 准备破新高")
 
 grpMTF = "⑤ 大小周期"
-bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）")
-smallTF = input.timeframe("60", "小周期", group = grpMTF, tooltip = "两个周期 150 均线同方向 = 大小周期同趋势")
+bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）。小周期 = 你当前图表的周期，切换图表就跟着变")
 
 // ============================== 均线 MAs ==================================
 ma50  = ta.sma(close, len50)
@@ -135,14 +134,14 @@ rsNearHigh = rsLine >= rsHigh1Y * (1 - rsNearPct / 100) or rsLine >= rsAth * (1 
 rsNearLow  = rsLine <= rsLow1Y * (1 + rsNearPct / 100) or rsLine <= rsAtl * (1 + rsNearPct / 100)
 
 // ======================== 大小周期同趋势 ===================================
-// 大周期固定用输入的 bigTF（默认天图），小周期用 smallTF，
-// 各自算 150 均线斜率，同方向 = 大小周期同趋势（与当前图表周期无关）
+// 大周期固定用输入的 bigTF（默认天图），小周期 = 当前图表周期（跟着你切换），
+// 各自算 150 均线斜率，同方向 = 大小周期同趋势
 f_slope150() =>
     ma = ta.sma(close, len150)
     (ma - ma[slopeLen]) / ma[slopeLen] * 100
 
 bigSlope     = request.security(syminfo.tickerid, bigTF, f_slope150())
-smallSlope   = request.security(syminfo.tickerid, smallTF, f_slope150())
+smallSlope   = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100   // 当前图表的 150 均线斜率
 sameTrendUp   = bigSlope >  flatPct and smallSlope >  flatPct  // 大小周期同趋上
 sameTrendDown = bigSlope < -flatPct and smallSlope < -flatPct  // 大小周期同趋下
 
@@ -205,7 +204,7 @@ if barstate.islast
     string alignPenTxt = ""
     if alignPenActive
         alignPenTxt := bullStack ? "（50在" + (ma50 < ma200 ? "150&200下 大扣-" : "150下 扣-") + str.tostring(longAlignPen) + "）" : "（50在" + (ma50 > ma200 ? "150&200上 大扣-" : "150上 扣-") + str.tostring(shortAlignPen) + "）"
-    stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + alignPenTxt
+    stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + "（" + timeframe.period + "）" + alignPenTxt
     mtfTxt   = sameTrendUp ? "同趋上 ✔" : sameTrendDown ? "同趋下 ✔" : "不同向 ✘"
     rsTxt    = rsNearHigh ? "接近新高（强）" : rsNearLow ? "接近新低（弱）" : "中性"
     tradeTxt = stage == 1 or stage == 3 ? "⛔ Stage " + str.tostring(stage) + " 不做任何交易" : stage == 2 ? "✅ 做多时期" : "✅ 做空时期"
@@ -216,7 +215,7 @@ if barstate.islast
     f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
     f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)
     f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
-    f_cell(5, "大小周期",   mtfTxt + "（" + bigTF + " vs " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
+    f_cell(5, "大小周期",   mtfTxt + "（" + bigTF + " vs " + timeframe.period + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
     f_cell(6, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
     f_cell(7, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
     f_cell(8, "可否交易",   tradeTxt, stage == 2 ? color.green : stage == 4 ? color.red : color.orange)

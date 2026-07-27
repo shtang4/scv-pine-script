@@ -94,7 +94,7 @@ f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = size.small, text_halign = text.align_left)
 
 if barstate.islast
-    string modeTxt   = mode == 1 ? "多头排列 → 做多量能" : mode == -1 ? "空头排列 → 做空量能" : "无排列 → 暂停"
+    string modeTxt   = (mode == 1 ? "多头排列 → 做多量能" : mode == -1 ? "空头排列 → 做空量能" : "无排列 → 暂停") + "（" + timeframe.period + "）"
     string structTxt = mode == 0 ? "—" : (structVolOK ? "✔ " : "✘ ") +
          (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? avgUpVol : avgDnVol, format.volume) +
          " vs " + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? avgDnVol : avgUpVol, format.volume)
