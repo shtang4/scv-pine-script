@@ -63,8 +63,9 @@ plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
 plot(showMA ? ma150 : na, "150均线", color = color.aqua, linewidth = 2)
 plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
-bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列 → 侦测做多收缩
-bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列 → 侦测做空收缩
+// 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
+bullStack = ma150 > ma200   // 多头排列 → 侦测做多收缩
+bearStack = ma150 < ma200   // 空头排列 → 侦测做空收缩
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 
 // ==================== Stage 判断（与 SCV-Stage 同一套逻辑） =================

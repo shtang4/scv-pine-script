@@ -35,8 +35,9 @@ dollarLookback = input.int(20,  "交易金额平均回看天数",   minval = 1, 
 ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
-bullStack = ma50 > ma150 and ma150 > ma200
-bearStack = ma50 < ma150 and ma150 < ma200
+// 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
+bullStack = ma150 > ma200
+bearStack = ma150 < ma200
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 bool isLong = mode == 1
 

@@ -41,8 +41,8 @@ stageTF      = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = 
 slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
 flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage)
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
-alignPen1    = input.int(1,     "排列扣分：50跌破150",   minval = 0,  group = grpStage, tooltip = "多头排列里 50均线跌破 150均线 = 扣分（做空镜像：50升破150）")
-alignPen2    = input.int(2,     "排列大扣分：50跌破200", minval = 0,  group = grpStage, tooltip = "50均线跌破 200均线 = 大扣分（比跌破150更严重）")
+alignPen1    = input.int(1,     "排列小扣分：50在150下",   minval = 0,  group = grpStage, tooltip = "多头排列(150在200上)里，50 在 150 下但仍在 200 上 = 小扣分（做空镜像：50在150上但仍在200下）")
+alignPen2    = input.int(2,     "排列大扣分：50在150&200下", minval = 0,  group = grpStage, tooltip = "50 同时在 150 和 200 下 = 大扣分（比只在150下更弱）")
 cutDrawdown   = input.float(35.0, "Stage3 清仓跌幅 (%)",     minval = 1, step = 1, group = grpStage, tooltip = "从周期高点回落此% = 清仓信号。股票/加密 ≈35，其他资产 ≈10")
 noNewHighBars = input.int(20,     "Stage3 不创新高K线数",    minval = 2, group = grpStage, tooltip = "超过此根数没创周期新高 = 不再创新高")
 
@@ -90,8 +90,9 @@ plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
 plot(showMA ? ma150 : na, "150均线", color = color.aqua, linewidth = 2)
 plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
-bullStack = ma50 > ma150 and ma150 > ma200   // 多头排列
-bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列
+// 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
+bullStack = ma150 > ma200   // 多头排列
+bearStack = ma150 < ma200   // 空头排列
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 
 // ============================ S · Stage ====================================
@@ -172,7 +173,8 @@ smallSlope    = request.security(syminfo.tickerid, smallTF, f_slope150())
 sameTrendUp   = bigSlope > flatPct and smallSlope > flatPct
 sameTrendDown = bigSlope < -flatPct and smallSlope < -flatPct
 
-// —— 多头/空头排列品质：50 跌破 150 扣分，跌破 200 大扣分（做空镜像） ——
+// —— 排列品质（三档）：50 在 150&200 上 = 完美 · 50 在 150 下但仍在 200 上 = 小扣
+//    · 50 在 150&200 下 = 大扣（做空镜像） ——
 int longAlignPen  = ma50 < ma200 ? alignPen2 : ma50 < ma150 ? alignPen1 : 0
 int shortAlignPen = ma50 > ma200 ? alignPen2 : ma50 > ma150 ? alignPen1 : 0
 
@@ -570,11 +572,11 @@ if barstate.islast
         r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
         r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
         r := f_cell(r, "S · 大小周期", mtfTxt + "（" + bigTF + " vs " + smallTF + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
-        // 只显示当前方向相关的扣分：Stage 4（做空期）看升破，其他看跌破（多头 = 跌破才扣）
-        bool alignPenActive = stage == 4 ? shortAlignPen > 0 : longAlignPen > 0
+        // 扣分按当前排列方向显示：多头看 50 在 150/200 下，空头看 50 在 150/200 上
+        bool alignPenActive = bullStack ? longAlignPen > 0 : bearStack and shortAlignPen > 0
         string alignPenTxt = ""
         if alignPenActive
-            alignPenTxt := stage == 4 ? "（50升破" + (ma50 > ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(shortAlignPen) + "）" : "（50跌破" + (ma50 < ma200 ? "200 大扣" : "150 扣") + "-" + str.tostring(longAlignPen) + "）"
+            alignPenTxt := bullStack ? "（50在" + (ma50 < ma200 ? "150&200下 大扣-" : "150下 扣-") + str.tostring(longAlignPen) + "）" : "（50在" + (ma50 > ma200 ? "150&200上 大扣-" : "150上 扣-") + str.tostring(shortAlignPen) + "）"
         r := f_cell(r, "S · 加分", "做多 " + str.tostring(sLongScore) + "/6 · 做空 " + str.tostring(sShortScore) + "/6" + alignPenTxt,
              sLongScore >= 4 ? color.green : sShortScore >= 4 ? color.red : alignPenActive ? color.orange : color.gray)
         r := f_cell(r, "S · 图表", isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图", isOldChart ? color.gray : color.orange)
