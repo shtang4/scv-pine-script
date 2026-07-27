@@ -51,6 +51,7 @@ c1Pen200  = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, 
 showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
 grpStage = "④ Stage（用于 Base 计数）"
+stageTF  = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股改成 240（4小时）")
 slopeLen = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
 flatPct  = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "和 SCV-Stage 指标用同一套参数，两边保持一致")
 
@@ -67,20 +68,26 @@ bearStack = ma50 < ma150 and ma150 < ma200   // 空头排列 → 侦测做空收
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 
 // ==================== Stage 判断（与 SCV-Stage 同一套逻辑） =================
-slope150  = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100
-trendUp   = slope150 >  flatPct
-trendDown = slope150 < -flatPct
-trendFlat = not trendUp and not trendDown
-var int stage = 1
-var int lastTrendStage = 0
-if trendUp and close > ma150
-    stage := 2
-    lastTrendStage := 2
-else if trendDown and close < ma150
-    stage := 4
-    lastTrendStage := 4
-else if trendFlat
-    stage := lastTrendStage == 2 ? 3 : 1
+// Stage 只看 stageTF（默认天图）的 150 均线，与当前图表周期无关
+f_stageCalc() =>
+    float ma = ta.sma(close, len150)
+    float sl = (ma - ma[slopeLen]) / ma[slopeLen] * 100
+    bool  up = sl >  flatPct
+    bool  dn = sl < -flatPct
+    bool  ft = not up and not dn
+    var int st    = 1
+    var int lastT = 0
+    if up and close > ma
+        st    := 2
+        lastT := 2
+    else if dn and close < ma
+        st    := 4
+        lastT := 4
+    else if ft
+        st := lastT == 2 ? 3 : 1
+    st
+
+int stage = request.security(syminfo.tickerid, stageTF, f_stageCalc())
 
 // ========================= 结构（C1~C6）存储 ===============================
 var cStart    = array.new<float>()  // 每段起点：做多=波段高点，做空=波段低点

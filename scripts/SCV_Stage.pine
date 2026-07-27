@@ -19,6 +19,7 @@ len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 
 grpStage = "② Stage 判断"
+stageTF      = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股天图没有150均线时改成 240（4小时）")
 slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage, tooltip = "用 150 均线现在的值和 N 根K线前的值比较，判断趋上/趋平/趋下")
 flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "150均线在回看期内变动小于 ±此百分比 = 趋平")
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
@@ -52,8 +53,34 @@ plot(ma150, "150均线", color = color.aqua, linewidth = 2)
 plot(ma200, "200均线", color = color.red,  linewidth = 2)
 
 // ====================== 150 均线方向（Stage 的核心） =======================
-// 斜率 = 150均线在 slopeLen 根K线内的变动百分比
-slope150  = (ma150 - ma150[slopeLen]) / ma150[slopeLen] * 100
+// Stage 只看 stageTF（默认天图）的 150 均线：整套状态机在该周期上计算，
+// 所以不管当前图表是 1h / 30m / 15m，Stage 判断都一样
+f_stageCalc() =>
+    float ma = ta.sma(close, len150)
+    float sl = (ma - ma[slopeLen]) / ma[slopeLen] * 100   // 斜率 = 150均线在 slopeLen 根内的变动%
+    bool  up = sl >  flatPct
+    bool  dn = sl < -flatPct
+    bool  ft = not up and not dn
+    // 趋平时要分 Stage 1 还是 Stage 3：
+    //   之前是 Stage 2（涨完了才走平）→ Stage 3（顶部）
+    //   其他情况（跌完了/一直没趋势）  → Stage 1（底部/横盘）
+    var int st    = 1
+    var int lastT = 0                   // 记录最近一次的趋势 Stage（2 或 4）
+    if up and close > ma
+        st    := 2
+        lastT := 2
+    else if dn and close < ma
+        st    := 4
+        lastT := 4
+    else if ft
+        st := lastT == 2 ? 3 : 1
+    // 趋势和价格矛盾时（例如均线趋上但价格已跌破150均线）→ 保持原 Stage 不变
+    var int fb = 0                      // 横盘（趋平）持续根数，以该周期计
+    fb := ft ? fb + 1 : 0
+    bool cdn = ta.crossunder(close, ma) // Stage 3 跌穿 150 均线
+    [st, sl, fb, cdn]
+
+[stage, slope150, flatBars, crossDn150] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
 trendUp   = slope150 >  flatPct        // 趋上
 trendDown = slope150 < -flatPct        // 趋下
 trendFlat = not trendUp and not trendDown  // 趋平
@@ -68,30 +95,11 @@ dnVolSum = math.sum(close <  open ? volume : 0, volLookback)
 upVolDominant = upVolSum > dnVolSum * volRatio   // 阳烛量放大（Stage 2 特征）
 dnVolDominant = dnVolSum > upVolSum * volRatio   // 阴烛量放大（Stage 3/4 特征）
 
-// ========================= Stage 判断（状态机） ============================
-// 趋平时要分 Stage 1 还是 Stage 3：
-//   之前是 Stage 2（涨完了才走平）→ Stage 3（顶部）
-//   其他情况（跌完了/一直没趋势）  → Stage 1（底部/横盘）
-var int stage = 1
-var int lastTrendStage = 0   // 记录最近一次的趋势 Stage（2 或 4）
-
-if trendUp and close > ma150
-    stage := 2
-    lastTrendStage := 2
-else if trendDown and close < ma150
-    stage := 4
-    lastTrendStage := 4
-else if trendFlat
-    stage := lastTrendStage == 2 ? 3 : 1
-// 趋势和价格矛盾时（例如均线趋上但价格已跌破150均线）→ 保持原 Stage 不变
-
-// Stage 1 横盘计时：趋平持续了多少根K线（要求至少半年）
-var int flatBars = 0
-flatBars := trendFlat ? flatBars + 1 : 0
+// ========================= Stage 1 / 3 附加条件 ============================
+// Stage 1 横盘计时（flatBars 已在 stageTF 周期上算好，要求至少半年）
 stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
 
 // Stage 3 警讯：跌穿 150 均线
-bool crossDn150 = ta.crossunder(close, ma150)   // 每根都算，避免放在 and 后面被条件影响
 stage3BreakMA = stage == 3 and crossDn150
 
 // —— Stage 3/4：距周期高点回落（清仓门槛）+ 波动大不创新高 ——
@@ -171,7 +179,7 @@ if stage != stage[1]
     label.new(bar_index, high, "Stage " + str.tostring(stage), style = label.style_label_down, color = color.new(stageColor, 20), textcolor = color.white, size = size.small)
 
 // Stage 3 跌穿 150 均线警讯
-plotshape(stage3BreakMA, "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+plotshape(stage3BreakMA and not stage3BreakMA[1], "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
 // 清仓信号（距周期高点回落 ≥ 门槛）+ 波动大不创新高
 plotshape(cutSignal and not cutSignal[1], "清仓信号", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.normal, text = "清仓")
 plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
@@ -202,7 +210,7 @@ if barstate.islast
     chartTxt = isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图"
 
     f_cell(0, "Stage",      stageTxt, cutSignal ? color.red : stageColor)
-    f_cell(1, "150均线",    maTxt + "  (" + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
+    f_cell(1, "150均线",    maTxt + "  (" + stageTF + " " + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
     f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
     f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)
     f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
