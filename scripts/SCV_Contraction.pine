@@ -67,7 +67,7 @@ ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
 plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
-plot(showMA ? ma150 : na, "150均线", color = color.aqua, linewidth = 2)
+plot(showMA ? ma150 : na, "150均线", color = color.green, linewidth = 2)
 plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
 // 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）

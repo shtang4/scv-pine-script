@@ -53,9 +53,9 @@ ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
 
-// 颜色规定：50均线 灰色 · 150均线 青色 · 200均线 红色
+// 颜色规定：50均线 灰色 · 150均线 绿色 · 200均线 红色
 plot(ma50,  "50均线",  color = color.gray, linewidth = 1)
-plot(ma150, "150均线", color = color.aqua, linewidth = 2)
+plot(ma150, "150均线", color = color.green, linewidth = 2)
 plot(ma200, "200均线", color = color.red,  linewidth = 2)
 
 // ====================== 150 均线方向（Stage 的核心） =======================

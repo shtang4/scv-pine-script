@@ -7,7 +7,7 @@
 //    Stage 1 趋平·横盘至少半年·量低迷 | Stage 2 趋上·做多 | Stage 3 趋平(顶)·
 //    跌穿150均线 | Stage 4 趋下·做空。Stage 1 & 3 不做任何交易。
 //    加分（做多）：RS 准备破新高 +3 · Stage2+多头排列 +2 · 大小周期同趋势 +1
-//    加分（做空）：镜像。50均线灰色 · 150均线青色 · 200均线红色。
+//    加分（做空）：镜像。50均线灰色 · 150均线绿色 · 200均线红色。
 //    旧图（K线数够 200 均线）看天图；新图只有 50 均线 → 看 4 小时图。
 //
 //  ── C · Contraction ────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
 plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
-plot(showMA ? ma150 : na, "150均线", color = color.aqua, linewidth = 2)
+plot(showMA ? ma150 : na, "150均线", color = color.green, linewidth = 2)
 plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
 // 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
