@@ -52,6 +52,7 @@ showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap
 
 grpStage = "④ Stage（用于 Base 计数）"
 stageTF  = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股改成 240（4小时）")
+newTF    = input.timeframe("240", "新图 Stage 周期", group = grpStage, tooltip = "天图还没有 150 均线（新币/新股）时，Stage 自动改看这个周期，默认 4 小时")
 slopeLen = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
 flatPct  = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "和 SCV-Stage 指标用同一套参数，两边保持一致")
 
@@ -92,9 +93,14 @@ f_stageCalc() =>
         lastT := 4
     else if ft
         st := lastT == 2 ? 3 : 1
-    st
+    [st, ma]                             // ma 用来判断该周期有没有 150 均线
 
-int stage = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+// 新图自动切换：天图还没有 150 均线（K线不够）→ Stage 改看 4 小时
+[stgD, maD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+[stgN, maN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
+bool   isNewChart  = na(maD)                       // 天图无 150 均线 = 新图
+string stageTFUsed = isNewChart ? newTF : stageTF
+int    stage       = isNewChart ? stgN : stgD
 
 // ========================= 结构（C1~C6）存储 ===============================
 var cStart    = array.new<float>()  // 每段起点：做多=波段高点，做空=波段低点
@@ -429,7 +435,7 @@ if barstate.islast
     else
         depthTxt := "—"
     string alignLost = activeMode != 0 and mode != activeMode ? "（排列暂失·续追踪）" : ""
-    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + "（" + timeframe.period + "）" + alignLost + " · Stage " + str.tostring(stage) + "（" + stageTF + "）"
+    string modeTxt  = (activeMode == 1 ? "多头排列 → 侦测做多" : activeMode == -1 ? "空头排列 → 侦测做空" : "无排列 → 暂停侦测") + "（" + timeframe.period + "）" + alignLost + " · Stage " + str.tostring(stage) + "（" + stageTFUsed + "）"
     string c1maTxt  = cN >= 1 ? (c1Touched ? "✔ 有动到" : "✘ 没动到") : "—"
     string buyTxt   = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(lastDepth, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
          "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"

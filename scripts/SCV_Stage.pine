@@ -20,6 +20,7 @@ len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 
 grpStage = "② Stage 判断"
 stageTF      = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股天图没有150均线时改成 240（4小时）")
+newTF        = input.timeframe("240", "新图 Stage 周期", group = grpStage, tooltip = "天图还没有 150 均线（新币/新股）时，Stage 自动改看这个周期，默认 4 小时")
 slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage, tooltip = "用 150 均线现在的值和 N 根K线前的值比较，判断趋上/趋平/趋下")
 flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "150均线在回看期内变动小于 ±此百分比 = 趋平")
 sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
@@ -83,9 +84,17 @@ f_stageCalc() =>
     var int fb = 0                      // 横盘（趋平）持续根数，以该周期计
     fb := ft ? fb + 1 : 0
     bool cdn = ta.crossunder(close, ma) // Stage 3 跌穿 150 均线
-    [st, sl, fb, cdn]
+    [st, sl, fb, cdn, ma]                // ma 用来判断该周期有没有 150 均线
 
-[stage, slope150, flatBars, crossDn150] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+// 新图自动切换：天图还没有 150 均线（K线不够）→ Stage 改看 4 小时
+[stgD, slpD, fbD, cdnD, maD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+[stgN, slpN, fbN, cdnN, maN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
+bool   isNewChart  = na(maD)                       // 天图无 150 均线 = 新图
+string stageTFUsed = isNewChart ? newTF : stageTF  // Stage 实际使用的周期
+int    stage       = isNewChart ? stgN : stgD
+float  slope150    = isNewChart ? slpN : slpD
+int    flatBars    = isNewChart ? fbN  : fbD
+bool   crossDn150  = isNewChart ? cdnN : cdnD
 trendUp   = slope150 >  flatPct        // 趋上
 trendDown = slope150 < -flatPct        // 趋下
 trendFlat = not trendUp and not trendDown  // 趋平
@@ -174,7 +183,7 @@ shortScore -= shortAlignPen
 // ====================== 新图 / 旧图（注意事项 1 & 2） =======================
 // 旧图：K线数够算出 150 和 200 均线 → 看天图
 // 新图：只有 50 均线能算出来       → 该去看 4 小时图
-isOldChart = last_bar_index + 1 >= len200
+// 新图/旧图由「天图有没有 150 均线」决定（见上面 isNewChart）
 
 // ============================ 图表显示 =====================================
 stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
@@ -225,10 +234,10 @@ if barstate.islast
     else if stage == 4
         tradeTxt := bearStack ? "✅ 可交易 (空 S+)" : "⛔ 不交易 (空 S-)"
         tradeOK  := bearStack
-    chartTxt = isOldChart ? "旧图：看天图" : "新图：只有50均线 → 看4小时图"
+    chartTxt = isNewChart ? "新图：看" + newTF + "（天图无150均线）" : "旧图：看" + stageTF
 
     f_cell(0, "Stage",      stageTxt, cutSignal ? color.red : stageColor)
-    f_cell(1, "150均线",    maTxt + "  (" + stageTF + " " + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
+    f_cell(1, "150均线",    maTxt + "  (" + stageTFUsed + " " + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
     f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
     f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)
     f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
@@ -236,4 +245,4 @@ if barstate.islast
     f_cell(6, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
     f_cell(7, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
     f_cell(8, "可否交易",   tradeTxt, cutSignal ? color.red : not tradeOK ? color.gray : stage == 2 ? color.green : color.red)
-    f_cell(9, "图表提示",   chartTxt, isOldChart ? color.gray : color.orange)
+    f_cell(9, "图表提示",   chartTxt, isNewChart ? color.orange : color.gray)
