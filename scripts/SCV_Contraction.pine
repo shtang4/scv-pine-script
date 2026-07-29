@@ -259,6 +259,17 @@ if activeMode != 0
             swingEndMA  := ma50
             swingEndAlign := isLong ? bullStack : bearStack
 
+    // 1c) 上一段的高点被之后的K突破（但还没突破 C1 高点）→ 该段作废，等它从这个更高的
+    //     高点重新走一遍（低点必须由之后的下跌重新产生，不能沿用旧低点）
+    //     永远不动 C1：突破 C1 高点属于 Base 突破，由下面的突破逻辑处理
+    if array.size(cDepth) >= 2
+        bool popped = false
+        while array.size(cDepth) >= 2 and (isLong ? high > array.get(cStart, array.size(cDepth) - 1) : low < array.get(cStart, array.size(cDepth) - 1))
+            f_popLast()
+            popped := true
+        if popped
+            f_redraw(isLong)
+
     // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
     //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
     if array.size(cDepth) >= 1
