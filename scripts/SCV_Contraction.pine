@@ -12,7 +12,7 @@
 //        买点 = 末段 ≤ 10%；Base = 突破 C1 高点
 //        级联规则：某段 pivot low 跌破上一段 pivot low → 这个低点变成那一段的
 //        低点（保留该段高点），比它更深的段清掉（例：C3 跌破 C2 → C3 低点变成
-//        C2 低点）。「波段缩小」不再是硬性条件，只作加分项 1。
+//        C2 低点）。结构条件 = 波段缩小 + 底部抬高（两者都要，可在设置关掉缩小）。
 //    做空（空头排列）：镜像 —— 每段 C = 摆动低点 → 摆动高点；Base = 跌破 C1 低点
 //    参考实例：Base1  C1 −31.95% → C2 −10.22%
 //              Base2  C1 −26.97% → C2 −24.41% → C3 −9.21%
@@ -43,6 +43,7 @@ pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval
 dojiPct        = input.float(50.0, "数蜡烛：变盘线 实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "变盘线 = 上下影线合计比实体长，不管阴阳。影线合计 = 范围 − 实体，所以「实体 < 范围的 50%」即可；调低会更严格")
 sealBars       = input.int(3,      "数蜡烛：低点确认K线数", minval = 1, group = grpC, tooltip = "只在「数蜡烛」模式用：回调低点连续这么多根没再被跌破 = 这段收缩结束")
 minLegPct      = input.float(1.5,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
+requireShrink  = input.bool(true, "结构必须波段缩小（每段比上一段浅）", group = grpC, tooltip = "教材：波段缩小 + 底部抬高。关掉的话只要低点抬高就算新的一段，横盘震荡会画出一堆忽大忽小的 C")
 requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
 buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
@@ -318,9 +319,17 @@ if activeMode != 0
                 bool raisedLow  = isLong ? legEnd > lastLow  : legEnd < lastLow    // 底部抬高
                 bool higherHigh = isLong ? (legStart > lastHigh and legStart < baseHi) : (legStart < lastHigh and legStart > baseHi)
                 bool breakLow   = isLong ? legEnd < lastLow  : legEnd > lastLow
-                if raisedLow
-                    // ① 底部抬高 → 新的一段（最多 6 段）。优先于高点规则：
-                    //    低点抬高就是新的一段，不管这段的高点比上一段高还是低
+                float prevDepth = array.get(cDepth, array.size(cDepth) - 1)
+                if raisedLow and requireShrink and depth >= prevDepth
+                    // ⓪ 底部抬高了，但这段没有比上一段浅 → 收缩结构被破坏
+                    //    → 旧结构作废，这一段当作新的 C1 重新开始
+                    f_clear()
+                    if swingEndAlign and (not requireTouch50 or touchedMA)
+                        f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
+                    changed := true
+                else if raisedLow
+                    // ① 底部抬高 + 波段缩小 → 新的一段（最多 6 段）。优先于高点规则：
+                    //    不管这段的高点比上一段高还是低
                     if array.size(cDepth) < 6
                         f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                         changed := true
