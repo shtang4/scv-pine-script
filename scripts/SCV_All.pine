@@ -360,21 +360,6 @@ if activeMode != 0
             swingEndMA  := ma50
             swingEndAlign := isLong ? bullStack : bearStack
 
-    // 1c) 该段的高点要一直跟「之后出现的K线」比：只要出现更高的高点（且还没突破
-    //     C1 高点），更高的那个就变成该段的高点，低点不动、深度重算
-    //     只作用于最后一段，不往前合并（旧段的低点不会被拿去配新的高点）
-    if array.size(cDepth) >= 1
-        int   segI   = array.size(cDepth) - 1
-        float segHi  = array.get(cStart, segI)
-        float baseHi = array.get(cStart, 0)
-        bool  hiBroken = isLong ? (high > segHi and high < baseHi) : (low < segHi and low > baseHi)
-        if hiBroken
-            float newHi  = isLong ? high : low
-            float segLow = array.get(cEnd, segI)
-            array.set(cStart, segI, newHi)
-            array.set(cDepth, segI, isLong ? (newHi - segLow) / newHi * 100 : (segLow - newHi) / newHi * 100)
-            f_redraw(isLong)
-
     // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
     //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
     if array.size(cDepth) >= 1
