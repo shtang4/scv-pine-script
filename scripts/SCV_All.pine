@@ -415,25 +415,9 @@ if activeMode != 0
                     c1CumDn := anchorCumDn
                     changed := true
             else
-                float lastHigh = array.get(cStart, array.size(cDepth) - 1)
-                float lastLow  = array.get(cEnd,   array.size(cDepth) - 1)
-                float baseHi   = array.get(cStart, 0)
-                bool reclaim = isLong ? (legStart > lastHigh and legStart < baseHi) : (legStart < lastHigh and legStart > baseHi)
+                float lastLow = array.get(cEnd, array.size(cDepth) - 1)
                 bool breakLow = isLong ? legEnd < lastLow : legEnd > lastLow
-                if reclaim
-                    // 这段的高点反弹突破上一段高点 → 是「新的一段」（有自己的新低点，符合画C规矩）
-                    // → 用它自己的高和低替换被突破的段（不重用旧低）；突破更前面段就往前合并（不碰 C1）
-                    while array.size(cDepth) >= 2 and (isLong ? legStart > array.get(cStart, array.size(cDepth) - 2) : legStart < array.get(cStart, array.size(cDepth) - 2))
-                        f_popLast()
-                    int li = array.size(cDepth) - 1
-                    array.set(cStart,    li, legStart)
-                    array.set(cStartBar, li, legStartBar)
-                    array.set(cEnd,      li, legEnd)
-                    array.set(cEndBar,   li, legEndBar)
-                    array.set(cDepth,    li, depth)
-                    array.set(cTouch,    li, touchedMA)
-                    changed := true
-                else if breakLow
+                if breakLow
                     // 跌破上一段低点 → 低点级联（保留高点）（例：C3 跌破 C2 → C3 低点变成 C2 低点）
                     while array.size(cDepth) >= 2 and (isLong ? legEnd < array.get(cEnd, array.size(cDepth) - 2) : legEnd > array.get(cEnd, array.size(cDepth) - 2))
                         f_popLast()
@@ -447,7 +431,8 @@ if activeMode != 0
                     array.set(cTouch,  li, keptTouch or touchedMA)
                     changed := true
                 else
-                    // 底部抬高（做多）/ 顶部抬低（做空）· 高点递减 → 新的一段（最多 6 段）
+                    // 底部抬高（做多）/ 顶部抬低（做空）→ 新的一段（最多 6 段）
+                    // 不管这段的高点比上一段高还是低，只看低点有没有抬高
                     if array.size(cDepth) < 6
                         f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                         changed := true
