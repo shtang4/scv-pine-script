@@ -552,14 +552,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 20, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 22, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 19)
+    table.clear(panel, 0, 0, 1, 21)
     int r = 0
 
     // —— 综合 ——
@@ -577,6 +577,31 @@ if barstate.islast
     else if stage == 4
         tradeTxt := bearStack ? "✅ 可交易 (空 S+)" : "⛔ 不交易 (空 S-)"
         tradeOK  := bearStack
+
+    // —— Selection 选股：S 找动能 · C 找买点 · V 找流动性 ——
+    //   S+C+V → 有大庄 | 只有 S+C → 调仓位 | 只有 S+V → 等买点 | 只有 C+V → 调低盈亏比
+    bool selS = tradeOK                    // 动能：天图 Stage 与当前周期排列同向
+    bool selC = cN >= 2 and buyZone        // 买点：结构成立(≥2段) 且 末段 ≤ 买点%
+    bool selV = liqOK                      // 流动性：日均交易金额达标
+    string selFlag = (selS ? "S+" : "S-") + (selC ? " C+" : " C-") + (selV ? " V+" : " V-")
+    string selTxt = "⛔ 不合格"
+    color  selCol = color.gray
+    if selS and selC and selV
+        selTxt := "✅ 有大庄"
+        selCol := color.green
+    else if selS and selC
+        selTxt := "⚠️ 调仓位（流动性不足）"
+        selCol := color.orange
+    else if selS and selV
+        selTxt := "⏳ 等买点"
+        selCol := color.teal
+    else if selC and selV
+        selTxt := "⚠️ 调低盈亏比（无动能）"
+        selCol := color.orange
+    r := f_cell(r, "SCV 选股", selTxt + " · " + selFlag, selCol)
+    r := f_cell(r, "选股明细", "S 动能" + (selS ? "✔" : "✘") + " · C 买点" + (selC ? "✔" : "✘") + " · V 流动" + (selV ? "✔" : "✘"),
+         selS and selC and selV ? color.green : color.gray)
+
     string comboExtra = ""
     if stage == 3 or stage == 4
         comboExtra := " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
