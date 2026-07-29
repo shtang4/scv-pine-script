@@ -2,7 +2,10 @@
 // ============================================================================
 //  SCV 选股系统 — 第 2 部分：Contraction（收缩形态）
 //
-//  侦测方式：摆动高低点（swing high / swing low）——对应手动画法
+//  侦测方式（设置里二选一）：
+//    摆动点 = 用 swing high/low 切段（对应手动画法，建议）
+//    数蜡烛 = 段内连续3根阴烛/变盘线 + 低点确认（教材原始定义）
+//  两种方式的高低点都取「真实峰谷价」，只是切段的触发条件不同
 //    做多（多头排列）：每段 C = 一个摆动高点 → 下一个摆动低点
 //        深度 =（摆动高 − 摆动低）÷ 摆动高 × 100%
 //        C1 动到 50 均线 · 底部抬高（低点逐个抬高）· 结构 = 2~6 段
@@ -34,8 +37,11 @@ len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 showMA = input.bool(true, "显示均线", group = grpMA)
 
-grpC = "② Contraction 侦测（摆动点）"
+grpC = "② Contraction 侦测"
+cMethod        = input.string("摆动点", "Contraction 侦测方式", options = ["摆动点", "数蜡烛"], group = grpC, tooltip = "摆动点：用 swing high/low 切段（对应手动画法，建议）。数蜡烛：连续3根阴烛/变盘线触发（教材原始定义）")
 pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大 = 只抓大波段、段数少、确认更慢；越小 = 抓小波段、更灵敏但杂讯多。对不上你手画的就调这个")
+dojiPct        = input.float(30.0, "数蜡烛：变盘线实体 ≤ K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "只在「数蜡烛」模式用：实体占整根K线的比例小于此值 = 变盘线")
+sealBars       = input.int(3,      "数蜡烛：低点确认K线数", minval = 1, group = grpC, tooltip = "只在「数蜡烛」模式用：回调低点连续这么多根没再被跌破 = 这段收缩结束")
 minLegPct      = input.float(1.5,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
 requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
@@ -173,6 +179,8 @@ f_redraw(bool longDir) =>
 // ============================ 侦测状态 =====================================
 var int   activeMode  = 0    // 1=做多侦测, -1=做空侦测, 0=暂停
 var float anchor      = na   // 收缩起点 = 真实极值（做多=峰值高价，做空=谷值低价）
+var int   runCount    = 0    // 数蜡烛模式：当前连续阴烛/变盘线根数
+var bool  armed       = false // 数蜡烛模式：本段是否已出现连续3根阴烛/变盘线
 var int   anchorBar   = na
 var float swingEnd    = na   // 收缩终点 = 起点以来的反向真实极值（做多=最低价，做空=最高价）
 var int   swingEndBar = na
@@ -195,6 +203,7 @@ if mode != 0 and mode != activeMode
     f_clear()
     baseCount   := 0
     lastBaseEnd := na
+    armed       := false
     anchor      := mode == 1 ? seedHi : seedLo     // 做多种最近高点 / 做空种最近低点
     anchorBar   := mode == 1 ? seedHiBar : seedLoBar
     swingEnd    := na
@@ -223,6 +232,7 @@ if activeMode != 0
         if na(anchor) or high > anchor
             anchor      := high
             anchorBar   := bar_index
+            armed       := false
             swingEnd    := low
             swingEndBar := bar_index
             swingEndMA  := ma50
@@ -236,6 +246,7 @@ if activeMode != 0
         if na(anchor) or low < anchor
             anchor      := low
             anchorBar   := bar_index
+            armed       := false
             swingEnd    := high
             swingEndBar := bar_index
             swingEndMA  := ma50
@@ -265,9 +276,19 @@ if activeMode != 0
             // 否则会把回调途中的反弹高当成新的一段，画出「嵌在里面」的 C
             anchor   := na
             swingEnd := na
+            armed    := false
 
-    // 2) 反向摆动点确认 → 这段收缩结束，用真实峰谷结算
-    bool legEvent = isLong ? not na(pl) : not na(ph)
+    // 2) 这段收缩什么时候结束 —— 两种侦测方式二选一（设置里切换）
+    //    摆动点：反向摆动点(pivot)确认
+    //    数蜡烛：段内出现连续3根阴烛/变盘线，且回调低点已 sealBars 根没被跌破
+    float cBody = math.abs(close - open)
+    float cRng  = high - low
+    bool  isDoji = cRng == 0 or cBody <= cRng * dojiPct / 100
+    bool  counterCandle = isLong ? (close < open or isDoji) : (close > open or isDoji)
+    runCount := counterCandle ? runCount + 1 : 0
+    if runCount >= 3
+        armed := true
+    bool legEvent = cMethod == "数蜡烛" ? (armed and not na(swingEndBar) and bar_index - swingEndBar >= sealBars) : (isLong ? not na(pl) : not na(ph))
     if legEvent and not na(anchor) and not na(swingEnd)
         float legStart    = anchor
         int   legStartBar = anchorBar
@@ -328,6 +349,7 @@ if activeMode != 0
         // 这段结束 → 从回调低点重新追踪下一段
         anchor      := na
         swingEnd    := na
+        armed       := false
 
 // ======================= 加分项目 & 买点（实时计算） ========================
 int cN = array.size(cDepth)
@@ -404,6 +426,7 @@ if activeMode != 0 and array.size(cDepth) >= 1
             f_clear()
         anchor   := na
         swingEnd := na
+        armed    := false
 
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
