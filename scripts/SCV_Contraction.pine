@@ -190,6 +190,7 @@ f_redraw(bool longDir) =>
 
 // ============================ 侦测状态 =====================================
 var int   activeMode  = 0    // 1=做多侦测, -1=做空侦测, 0=暂停
+var bool  lastHiBroken = false // 末段高点是否已被突破（一旦突破，末段低点就此定格，不再实时延伸）
 var float anchor      = na   // 收缩起点 = 真实极值（做多=峰值高价，做空=谷值低价）
 var int   runCount    = 0    // 数蜡烛模式：当前连续阴烛/变盘线根数
 var bool  armed       = false // 数蜡烛模式：本段是否已出现连续3根阴烛/变盘线
@@ -216,6 +217,7 @@ if mode != 0 and mode != activeMode
     baseCount   := 0
     lastBaseEnd := na
     armed       := false
+    lastHiBroken := false
     anchor      := mode == 1 ? seedHi : seedLo     // 做多种最近高点 / 做空种最近低点
     anchorBar   := mode == 1 ? seedHiBar : seedLoBar
     swingEnd    := na
@@ -273,8 +275,13 @@ if activeMode != 0
 
     // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
     //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
+    //     但一旦这段的高点先被突破（进入 C? 阶段），末段低点就此定格：
+    //     之后再出现的更低点属于正在形成的新段，不再算进旧段（旧段维持当时的低点）
     if array.size(cDepth) >= 1
-        bool loBroken = isLong ? low < array.get(cEnd, array.size(cDepth) - 1) : high > array.get(cEnd, array.size(cDepth) - 1)
+        float lastSegHi0 = array.get(cStart, array.size(cDepth) - 1)
+        if not na(anchor) and (isLong ? anchor > lastSegHi0 : anchor < lastSegHi0)
+            lastHiBroken := true
+        bool loBroken = (isLong ? low < array.get(cEnd, array.size(cDepth) - 1) : high > array.get(cEnd, array.size(cDepth) - 1)) and not lastHiBroken
         if loBroken
             float newLo = isLong ? low : high
             while array.size(cDepth) >= 2 and (isLong ? newLo < array.get(cEnd, array.size(cDepth) - 2) : newLo > array.get(cEnd, array.size(cDepth) - 2))
@@ -371,6 +378,7 @@ if activeMode != 0
                     changed := true
             if changed
                 f_redraw(isLong)
+                lastHiBroken := false   // 末段已更新（新段成形/重写）→ 高点突破状态归零
         // 这段结束 → 从回调低点重新追踪下一段
         anchor      := na
         swingEnd    := na
