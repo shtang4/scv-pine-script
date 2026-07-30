@@ -329,8 +329,11 @@ if activeMode != 0
         float depth  = isLong ? (legStart - legEnd) / legStart * 100 : (legEnd - legStart) / legStart * 100
         // 是否动到 50 均线（用收缩终点那根的均线快照，不做动态回看）
         bool touchedMA = isLong ? legEnd <= swingEndMA * (1 + tol50 / 100) : legEnd >= swingEndMA * (1 - tol50 / 100)
+        // 不变量：C 的低点一定要在 C 的高点「之后」才出现（低点 = 高点之后追踪到的反向极值）
+        // 正常追踪已保证 swingEndBar ≥ anchorBar；这里显式守一层，杜绝任何「低点在高点之前」的段
+        bool afterHigh = legEndBar >= legStartBar
 
-        if depth >= minLegPct
+        if depth >= minLegPct and afterHigh
             bool changed = false
             if array.size(cDepth) == 0
                 // C1：要求「低点(做多)/高点(做空)那根是对应排列」且「动到 50 均线」
@@ -362,7 +365,8 @@ if activeMode != 0
                         changed := true
                 else if higherHigh
                     // ② 低点没抬高，但这段的高点突破了上一段高点（且未破 C1 高点）
-                    //    → 更高的高点变成那一段的高点，低点用这段自己的新低点
+                    //    → 更高的高点变成那一段的高点；低点必在这个新高点「之后」，
+                    //      所以用这段自己在新高点之后追踪到的新低点（legEnd），旧的、早于新高的低点作废
                     //    （旧的那一段在这个合法的新 C 形成之前一直有效）
                     int hi = array.size(cDepth) - 1
                     array.set(cStart,    hi, legStart)
