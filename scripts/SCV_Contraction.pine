@@ -275,15 +275,22 @@ if activeMode != 0
 
     // 1b) 低点被之后的K跌破 → 实时延伸该段低点（保留高点）；跌破更前面段就往前合并
     //     低点变深是同一段回调的延续，可以实时更新（高点突破才要等新摆动完成）
-    //     但一旦这段的高点先被突破（进入 C? 阶段），末段低点就此定格：
-    //     之后再出现的更低点属于正在形成的新段，不再算进旧段（旧段维持当时的低点）
+    //   两条规则：
+    //   · 只要 C1 高点没被突破，所有 C 的低点都要跟 C1 低点对查：跌破 C1 低点 → 就变成 C1 的新低点
+    //     （一路并回 C1，即使中间某段的高点曾被突破过也照并）
+    //   · 只跌破中间/末段低点、还没到 C1 低点：那段的高点一旦先被突破（进入 C? 阶段）就定格，
+    //     之后的更低点属于正在形成的新段，不再算进旧段
     if array.size(cDepth) >= 1
         float lastSegHi0 = array.get(cStart, array.size(cDepth) - 1)
+        float c1Low0     = array.get(cEnd, 0)
         if not na(anchor) and (isLong ? anchor > lastSegHi0 : anchor < lastSegHi0)
             lastHiBroken := true
-        bool loBroken = (isLong ? low < array.get(cEnd, array.size(cDepth) - 1) : high > array.get(cEnd, array.size(cDepth) - 1)) and not lastHiBroken
+        float curLo       = isLong ? low : high
+        bool  breaksLast  = isLong ? curLo < array.get(cEnd, array.size(cDepth) - 1) : curLo > array.get(cEnd, array.size(cDepth) - 1)
+        bool  breaksC1Low = isLong ? curLo < c1Low0 : curLo > c1Low0
+        bool  loBroken    = breaksLast and (breaksC1Low or not lastHiBroken)
         if loBroken
-            float newLo = isLong ? low : high
+            float newLo = curLo
             while array.size(cDepth) >= 2 and (isLong ? newLo < array.get(cEnd, array.size(cDepth) - 2) : newLo > array.get(cEnd, array.size(cDepth) - 2))
                 f_popLast()
             int   lli    = array.size(cDepth) - 1
@@ -293,6 +300,8 @@ if activeMode != 0
             array.set(cEndBar, lli, bar_index)
             array.set(cDepth,  lli, newD)
             f_redraw(isLong)
+            if breaksC1Low
+                lastHiBroken := false
             // 低点还在加深 = 还在这段回调里 → 下一段的高点必须从这个更低点之后才开始追踪，
             // 否则会把回调途中的反弹高当成新的一段，画出「嵌在里面」的 C
             anchor   := na
@@ -479,9 +488,11 @@ if activeMode != 0 and array.size(cDepth) >= 1
         else
             // 只有 C1 就被突破 = 没形成结构 → 清掉
             f_clear()
+        // C1 高点被突破 → 原来的 C1 不再成立（结构结束，从新高重新数下一个 base）
         anchor   := na
         swingEnd := na
         armed    := false
+        lastHiBroken := false
 
 // ===================== 买点 / 止损（末段C ± buffer） ========================
 // 买点   = 末段 C 的高点 + buffer（做空镜像：末段 C 的低点 − buffer）
