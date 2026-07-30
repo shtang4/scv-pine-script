@@ -586,6 +586,9 @@ bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
 // （日内图上直接 close*volume 算的是每根K线的金额，会比真正的日金额小很多）
 float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLB))
 bool liqOK = avgDollarVol > minDollarM * 1000000
+// 另外单看「最近 1 天」的交易金额有没有超过门槛（天图当日 收盘价×成交量，不做平均）
+float dayDollarVol = request.security(syminfo.tickerid, "D", close * volume)
+bool dayLiqOK = dayDollarVol > minDollarM * 1000000
 // 烛数加分：从 C1 起点算到现在（整个 base 期间）的阳烛 vs 阴烛数量
 // 用 C1 起点的累计烛数快照差分，避免动态回看
 int cntUpBase = 0
@@ -707,14 +710,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 26, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 27, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 25)
+    table.clear(panel, 0, 0, 1, 26)
     int r = 0
 
     // —— 综合 ——
@@ -836,8 +839,10 @@ if barstate.islast
         string brkTxt = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
              "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
         string liqTxt = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
+        string dayLiqTxt = (dayLiqOK ? "✔ " : "✘ ") + str.tostring(dayDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
         string vBonusTxt = mode == 0 or cN < 1 ? "结构未成立" : (vBonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUpBase) + " vs 阴烛 " + str.tostring(cntDnBase) + " 根（C1起算）"
         r := f_cell(r, "V · 结构量能", structTxt, structVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 突破量能", brkTxt, breakoutVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 日均交易金额", liqTxt, liqOK ? color.green : color.red)
+        r := f_cell(r, "V · 当日交易金额", dayLiqTxt, dayLiqOK ? color.green : color.red)
         r := f_cell(r, "V · 加分：烛数", vBonusTxt, vBonusOK ? color.green : color.gray)
