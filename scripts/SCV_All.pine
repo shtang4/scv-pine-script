@@ -740,7 +740,7 @@ if barstate.islast
     //   S+C+V → 有大庄 | 只有 S+C → 调仓位 | 只有 S+V → 等买点 | 只有 C+V → 调低盈亏比
     bool selS = tradeOK                    // 动能：天图 Stage 与当前周期排列同向
     bool selC = cN >= 2 and buyZone        // 买点：结构成立(≥2段) 且 末段 ≤ 买点%
-    bool selV = liqOK                      // 流动性：日均交易金额达标
+    bool selV = dayLiqOK                   // 流动性：看「当日交易金额」达标（日均那项只当参考显示）
     string selFlag = (selS ? "S+" : "S-") + (selC ? " C+" : " C-") + (selV ? " V+" : " V-")
     string selTxt = "⛔ 不合格"
     color  selCol = color.gray
