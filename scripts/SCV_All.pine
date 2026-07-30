@@ -82,7 +82,16 @@ breakoutMult = input.float(1.5, "突破放量倍数",           minval = 1.0, st
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpVol)
 dollarLB     = input.int(20,    "交易金额平均回看天数",   minval = 1, group = grpVol, tooltip = "取几个交易日的日金额来平均")
 
-grpPanel = "⑦ 面板"
+grpBuy = "⑦ 买点 / 止损 Buffer"
+assetType = input.string("股/币", "资产类型", options = ["股/币", "汇/金/指/期"], group = grpBuy, tooltip = "决定 buffer 怎么算：股/币用固定%；汇/金/指/期按末段C深度的比例")
+bufDay    = input.float(1.0,   "股/币：天图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+bufHour   = input.float(0.5,   "股/币：时图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+bufMin    = input.float(0.25,  "股/币：分图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+fxDayHour = input.float(10.0,  "汇/金/指/期：天·时图 末段C% ×", minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
+fxMinute  = input.float(5.0,   "汇/金/指/期：分图 末段C% ×",   minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
+showBuyLv = input.bool(true,   "画出买点 / 止损线", group = grpBuy)
+
+grpPanel = "⑧ 面板"
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
 showC = input.bool(true, "显示 Contraction 区块", group = grpPanel)
 showV = input.bool(true, "显示 Volume 区块",      group = grpPanel)
@@ -479,6 +488,7 @@ float c1B       = na     // C1 收缩终点
 float c1Depth   = na     // C1 深度
 bool  c1Touched = false  // C1 是否动到 50 均线
 float lastStart = na     // 最后一段的波段起点
+float lastEnd   = na     // 最后一段的终点（做多=低点）
 float lastDepth = na     // 最后一段深度
 if cN >= 1
     c1A       := array.get(cStart, 0)
@@ -486,6 +496,7 @@ if cN >= 1
     c1Depth   := array.get(cDepth, 0)
     c1Touched := array.get(cTouch, 0)
     lastStart := array.last(cStart)
+    lastEnd   := array.last(cEnd)
     lastDepth := array.last(cDepth)
 
 // 加分1：每段收缩要落在「前段一半 ± 容差」之内（太小缩太多、太大缩太少都不给分）
@@ -559,6 +570,25 @@ if activeMode != 0 and array.size(cDepth) >= 1
         swingEnd := na
         armed    := false
 
+// ===================== 买点 / 止损（末段C ± buffer） ========================
+// 买点     = 末段 C 的高点 + buffer（做空镜像：末段 C 的低点 − buffer）
+// Stop Low = 末段 C 的低点 + buffer
+// buffer 按资产类型 + 当前图表周期自动选
+bool tfDayUp  = timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly
+bool tfHour   = timeframe.isminutes and timeframe.multiplier >= 60
+float bufPct  = 0.0
+if assetType == "股/币"
+    bufPct := tfDayUp ? bufDay : tfHour ? bufHour : bufMin
+else if not na(lastDepth)
+    bufPct := lastDepth * (tfDayUp or tfHour ? fxDayHour : fxMinute) / 100 / 2
+float buyLevel  = na
+float stopLevel = na
+if cN >= 1
+    buyLevel  := isLong ? lastStart * (1 + bufPct / 100) : lastStart * (1 - bufPct / 100)
+    stopLevel := isLong ? lastEnd   * (1 + bufPct / 100) : lastEnd   * (1 - bufPct / 100)
+plot(showBuyLv ? buyLevel : na,  "买点（末段C高+buffer）", color = color.new(color.lime, 0),   style = plot.style_linebr, linewidth = 2)
+plot(showBuyLv ? stopLevel : na, "Stop Low（末段C低+buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
+
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签
 stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
@@ -589,14 +619,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 22, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 24, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 21)
+    table.clear(panel, 0, 0, 1, 23)
     int r = 0
 
     // —— 综合 ——
@@ -694,6 +724,9 @@ if barstate.islast
         r := f_cell(r, "C · 收缩段数", str.tostring(cN) + "（需 2~6）| " + depthTxt, cN >= 2 ? color.teal : color.gray)
         r := f_cell(r, "C · C1动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
         r := f_cell(r, "C · 买点 (≤10%)", buyTxt, buyZone ? color.green : color.gray)
+        string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
+             " · Stop " + str.tostring(stopLevel, format.mintick) + "（buffer " + str.tostring(bufPct, "#.###") + "%）"
+        r := f_cell(r, "C · 买点/止损", lvTxt, cN >= 1 ? color.teal : color.gray)
         r := f_cell(r, "C · 价格位置", zoneTxt, zoneCol)
         r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
         r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)

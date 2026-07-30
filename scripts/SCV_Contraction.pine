@@ -63,7 +63,16 @@ newTF    = input.timeframe("240", "新图 Stage 周期", group = grpStage, toolt
 slopeLen = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage)
 flatPct  = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "和 SCV-Stage 指标用同一套参数，两边保持一致")
 
-grpPanel = "⑤ 面板"
+grpBuy = "⑤ 买点 / 止损 Buffer"
+assetType = input.string("股/币", "资产类型", options = ["股/币", "汇/金/指/期"], group = grpBuy, tooltip = "决定 buffer 怎么算：股/币用固定%；汇/金/指/期按末段C深度的比例")
+bufDay    = input.float(1.0,   "股/币：天图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+bufHour   = input.float(0.5,   "股/币：时图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+bufMin    = input.float(0.25,  "股/币：分图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
+fxDayHour = input.float(10.0,  "汇/金/指/期：天·时图 末段C% ×", minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
+fxMinute  = input.float(5.0,   "汇/金/指/期：分图 末段C% ×",   minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
+showBuyLv = input.bool(true,   "画出买点 / 止损线", group = grpBuy)
+
+grpPanel = "⑥ 面板"
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
@@ -374,6 +383,7 @@ float c1B       = na     // C1 收缩终点（做多=低点，做空=高点）
 float c1Depth   = na     // C1 深度
 bool  c1Touched = false  // C1 是否动到 50 均线
 float lastStart = na     // 最后一段的波段起点
+float lastEnd   = na     // 最后一段的终点（做多=低点）
 float lastDepth = na     // 最后一段深度
 if cN >= 1
     c1A       := array.get(cStart, 0)
@@ -381,6 +391,7 @@ if cN >= 1
     c1Depth   := array.get(cDepth, 0)
     c1Touched := array.get(cTouch, 0)
     lastStart := array.last(cStart)
+    lastEnd   := array.last(cEnd)
     lastDepth := array.last(cDepth)
 
 // 加分1 (+3)：波段收缩合理 —— 每段落在「前一段一半 ± 容差」之内（太小缩太多、太大缩太少都不给分）
@@ -442,6 +453,25 @@ if activeMode != 0 and array.size(cDepth) >= 1
         swingEnd := na
         armed    := false
 
+// ===================== 买点 / 止损（末段C ± buffer） ========================
+// 买点     = 末段 C 的高点 + buffer（做空镜像：末段 C 的低点 − buffer）
+// Stop Low = 末段 C 的低点 + buffer
+// buffer 按资产类型 + 当前图表周期自动选
+bool tfDayUp  = timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly
+bool tfHour   = timeframe.isminutes and timeframe.multiplier >= 60
+float bufPct  = 0.0
+if assetType == "股/币"
+    bufPct := tfDayUp ? bufDay : tfHour ? bufHour : bufMin
+else if not na(lastDepth)
+    bufPct := lastDepth * (tfDayUp or tfHour ? fxDayHour : fxMinute) / 100 / 2
+float buyLevel  = na
+float stopLevel = na
+if cN >= 1
+    buyLevel  := isLong ? lastStart * (1 + bufPct / 100) : lastStart * (1 - bufPct / 100)
+    stopLevel := isLong ? lastEnd   * (1 + bufPct / 100) : lastEnd   * (1 - bufPct / 100)
+plot(showBuyLv ? buyLevel : na,  "买点（末段C高+buffer）", color = color.new(color.lime, 0),   style = plot.style_linebr, linewidth = 2)
+plot(showBuyLv ? stopLevel : na, "Stop Low（末段C低+buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
+
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
 pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
@@ -459,7 +489,7 @@ plotshape(evtBreak and isLong,     "Base 向上突破", style = shape.triangleup
 plotshape(evtBreak and not isLong, "Base 向下跌破", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 13, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 14, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
@@ -491,10 +521,13 @@ if barstate.islast
     f_cell(3,  "各段深度",     depthTxt, color.gray)
     f_cell(4,  "C1 动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
     f_cell(5,  "买点 (≤10%)",  buyTxt, buyZone ? color.green : color.gray)
-    f_cell(6,  "价格位置",     zoneTxt, zoneCol)
-    f_cell(7,  "加分1 收缩合理 (+3)", score1OK ? "✔" : "✘", score1OK ? color.green : color.gray)
-    f_cell(8,  "加分2 C1在20-35% (+3)", score2OK ? "✔" : "✘", score2OK ? color.green : color.gray)
-    f_cell(9,  "加分3 Base在1或2 (+2)", score3OK ? "✔" : "✘", score3OK ? color.green : color.gray)
-    f_cell(10, "加分4 突破区=Pivot Area (+2)", score4OK ? "✔" : "✘", score4OK ? color.green : color.gray)
-    f_cell(11, "总分",         str.tostring(totalScore) + " / 10" + (c1Reach200 ? "  ⚠️C1到200均线 扣-" + str.tostring(c1Pen200) : ""), totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
-    f_cell(12, "最近 Base 突破", lastBaseTxt, color.gray)
+    string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
+         " · Stop " + str.tostring(stopLevel, format.mintick) + "（buffer " + str.tostring(bufPct, "#.###") + "%）"
+    f_cell(6,  "买点/止损",   lvTxt, cN >= 1 ? color.teal : color.gray)
+    f_cell(7,  "价格位置",     zoneTxt, zoneCol)
+    f_cell(8,  "加分1 收缩合理 (+3)", score1OK ? "✔" : "✘", score1OK ? color.green : color.gray)
+    f_cell(9,  "加分2 C1在20-35% (+3)", score2OK ? "✔" : "✘", score2OK ? color.green : color.gray)
+    f_cell(10,  "加分3 Base在1或2 (+2)", score3OK ? "✔" : "✘", score3OK ? color.green : color.gray)
+    f_cell(11, "加分4 突破区=Pivot Area (+2)", score4OK ? "✔" : "✘", score4OK ? color.green : color.gray)
+    f_cell(12, "总分",         str.tostring(totalScore) + " / 10" + (c1Reach200 ? "  ⚠️C1到200均线 扣-" + str.tostring(c1Pen200) : ""), totalScore >= 8 ? color.green : totalScore >= 5 ? color.teal : color.gray)
+    f_cell(13, "最近 Base 突破", lastBaseTxt, color.gray)
