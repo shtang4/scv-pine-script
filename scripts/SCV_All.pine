@@ -91,7 +91,18 @@ fxDayHour = input.float(10.0,  "汇/金/指/期：天·时图 末段C% ×", minv
 fxMinute  = input.float(5.0,   "汇/金/指/期：分图 末段C% ×",   minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
 showBuyLv = input.bool(true,   "画出买点 / 止损线", group = grpBuy)
 
-grpPanel = "⑧ 面板"
+grpSell = "⑧ 卖出 Sell Trigger"
+rrTarget      = input.float(2.0,  "主动①：盈亏比目标 1:X", minval = 0.5, step = 0.5, group = grpSell)
+avgProfitPct  = input.float(5.0,  "主动②：平均盈利 (%)",   minval = 0.1, step = 0.5, group = grpSell, tooltip = "你自己的平均单笔盈利，教材手写约 2~8%")
+avgProfitMult = input.float(2.5,  "主动②：达到平均盈利的 X 倍", minval = 1, step = 0.5, group = grpSell)
+extPct        = input.float(15.0, "主动③：高位 = 离 50均线 (%)", minval = 1, step = 1, group = grpSell, tooltip = "价格高于 50均线此% = 高位（乖离过大）")
+atrMult       = input.float(1.2,  "主动③：大波动 = ATR > 均值 ×", minval = 1, step = 0.1, group = grpSell)
+sellVolMult   = input.float(1.5,  "主动③④：大交易量 = 量 > 均量 ×", minval = 1, step = 0.1, group = grpSell)
+consecDn      = input.int(3,      "主动④：连续阴烛根数",    minval = 2, group = grpSell)
+trailBuf      = input.float(1.0,  "被动：50均线/前波段底 下方 buffer (%)", minval = 0, step = 0.25, group = grpSell)
+showSellLv    = input.bool(true,  "画出止盈 / 移动止盈线", group = grpSell)
+
+grpPanel = "⑨ 面板"
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
 showC = input.bool(true, "显示 Contraction 区块", group = grpPanel)
 showV = input.bool(true, "显示 Volume 区块",      group = grpPanel)
@@ -590,6 +601,36 @@ float riskPct = na(buyLevel) or na(stopLevel) or buyLevel == 0 ? na : math.abs(b
 plot(showBuyLv ? buyLevel : na,  "买点（末段C高+buffer）", color = color.new(color.lime, 0),   style = plot.style_linebr, linewidth = 2)
 plot(showBuyLv ? stopLevel : na, "止损（末段C低−buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
 
+// ===================== 卖出 Sell Trigger =================================
+// 主动套利 Take Profit：① 盈亏比达标 ② 利润达平均盈利的 2~3 倍
+//                      ③ 高位+大波动+大交易量 ④ 连续阴烛后出现大量阴烛
+// 被动套利 Ride The Trend（Stage 2 且 Base 1~2 才适用）：
+//                      移动止盈 = 50均线 / 前波段底部 之下加 buffer
+float tpRR  = na(buyLevel) or na(stopLevel) ? na : (isLong ? buyLevel + (buyLevel - stopLevel) * rrTarget : buyLevel - (stopLevel - buyLevel) * rrTarget)
+float tpAvg = na(buyLevel) ? na : (isLong ? buyLevel * (1 + avgProfitPct * avgProfitMult / 100) : buyLevel * (1 - avgProfitPct * avgProfitMult / 100))
+
+// ③ 高位 + 大波动 + 大交易量
+bool sellExtended = isLong ? close > ma50 * (1 + extPct / 100) : close < ma50 * (1 - extPct / 100)
+bool sellBigMove  = not na(atrNow) and atrNow > ta.sma(atrNow, 50) * atrMult
+bool sellBigVol   = volume > volMA * sellVolMult
+bool sellClimax   = activeMode != 0 and sellExtended and sellBigMove and sellBigVol
+
+// ④ 连续阴烛后，出现大交易量的阴烛（做空镜像：连续阳烛后出现大量阳烛）
+var int sellRun = 0
+sellRun := (isLong ? isDn : isUp) ? sellRun + 1 : 0
+bool sellVolDump = activeMode != 0 and (isLong ? isDn : isUp) and sellRun >= consecDn and volume > volMA * sellVolMult
+
+// 被动套利：Stage 2（做空 Stage 4）且 Base 还在 1~2 → 让利润跑，用移动止盈
+bool rideMode = activeMode != 0 and (isLong ? stage == 2 : stage == 4) and baseCount + 1 <= 2
+float trailMA    = isLong ? ma50 * (1 - trailBuf / 100) : ma50 * (1 + trailBuf / 100)
+float trailSwing = na(lastEnd) ? na : (isLong ? lastEnd * (1 - trailBuf / 100) : lastEnd * (1 + trailBuf / 100))
+float trailLevel = na(trailSwing) ? trailMA : (isLong ? math.max(trailMA, trailSwing) : math.min(trailMA, trailSwing))
+
+plot(showSellLv and not na(tpRR) ? tpRR : na, "止盈（盈亏比目标）", color = color.new(color.yellow, 0), style = plot.style_linebr, linewidth = 2)
+plot(showSellLv and rideMode ? trailLevel : na, "移动止盈（50均线/前波段底−buffer）", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
+plotshape(sellClimax and not sellClimax[1], "卖出③ 高位大波动大量", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 10), text = "TP3", textcolor = color.white, size = size.tiny)
+plotshape(sellVolDump and not sellVolDump[1], "卖出④ 连续阴烛后大量阴烛", style = shape.labeldown, location = location.abovebar, color = color.new(color.maroon, 10), text = "TP4", textcolor = color.white, size = size.tiny)
+
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签
 stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
@@ -620,14 +661,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 24, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 26, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 23)
+    table.clear(panel, 0, 0, 1, 25)
     int r = 0
 
     // —— 综合 ——
@@ -728,6 +769,15 @@ if barstate.islast
         string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
              " · 止损 " + str.tostring(stopLevel, format.mintick) + " · 风险 " + str.tostring(riskPct, "#.##") + "%（buffer " + str.tostring(bufPct, "#.###") + "%）"
         r := f_cell(r, "C · 买点/止损", lvTxt, cN >= 1 ? color.teal : color.gray)
+        string tpTxt = na(tpRR) ? "—" : "1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(tpRR, format.mintick) +
+             " · 平均盈利×" + str.tostring(avgProfitMult, "#.#") + " → " + str.tostring(tpAvg, format.mintick)
+        r := f_cell(r, "止盈目标", tpTxt, na(tpRR) ? color.gray : color.teal)
+        string sellTxt = rideMode ? "被动：移动止盈 " + str.tostring(trailLevel, format.mintick) : "主动：到目标就走（非 Stage2/Base1-2）"
+        if sellClimax
+            sellTxt := "⚠️ 高位+大波动+大量 → 减仓"
+        if sellVolDump
+            sellTxt := "⚠️ 连续" + str.tostring(consecDn) + "阴烛+大量阴烛 → 出"
+        r := f_cell(r, "卖出信号", sellTxt, sellClimax or sellVolDump ? color.red : rideMode ? color.teal : color.gray)
         r := f_cell(r, "C · 价格位置", zoneTxt, zoneCol)
         r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
         r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)
