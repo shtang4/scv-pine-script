@@ -571,8 +571,8 @@ if activeMode != 0 and array.size(cDepth) >= 1
         armed    := false
 
 // ===================== 买点 / 止损（末段C ± buffer） ========================
-// 买点     = 末段 C 的高点 + buffer（做空镜像：末段 C 的低点 − buffer）
-// Stop Low = 末段 C 的低点 + buffer
+// 买点   = 末段 C 的高点 + buffer（做空镜像：末段 C 的低点 − buffer）
+// 止损   = 末段 C 的低点 − buffer（做空镜像：末段 C 的高点 + buffer）
 // buffer 按资产类型 + 当前图表周期自动选
 bool tfDayUp  = timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly
 bool tfHour   = timeframe.isminutes and timeframe.multiplier >= 60
@@ -585,9 +585,9 @@ float buyLevel  = na
 float stopLevel = na
 if cN >= 1
     buyLevel  := isLong ? lastStart * (1 + bufPct / 100) : lastStart * (1 - bufPct / 100)
-    stopLevel := isLong ? lastEnd   * (1 + bufPct / 100) : lastEnd   * (1 - bufPct / 100)
+    stopLevel := isLong ? lastEnd   * (1 - bufPct / 100) : lastEnd   * (1 + bufPct / 100)
 plot(showBuyLv ? buyLevel : na,  "买点（末段C高+buffer）", color = color.new(color.lime, 0),   style = plot.style_linebr, linewidth = 2)
-plot(showBuyLv ? stopLevel : na, "Stop Low（末段C低+buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
+plot(showBuyLv ? stopLevel : na, "止损（末段C低−buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
 
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签
