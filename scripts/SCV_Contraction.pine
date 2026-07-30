@@ -127,6 +127,8 @@ var cDepth    = array.new<float>()  // 每段深度 (%)
 var cTouch    = array.new<bool>()   // 该段是否动到 50 均线
 var cBoxes    = array.new<box>()    // 已画的收缩框
 var cLabels   = array.new<label>()  // 已画的收缩标签
+var box   tentBox   = na            // 实时「C?」框（突破末段高点、新段还没成形时的暂时标记）
+var label tentLabel = na            // 实时「C?」标签
 
 f_wipeDraw() =>
     for b in cBoxes
@@ -376,6 +378,26 @@ if activeMode != 0
 
 // ======================= 加分项目 & 买点（实时计算） ========================
 int cN = array.size(cDepth)
+
+// —— 实时「C?」：C 的高点也是实时的 ——
+//    价格突破末段高点、但合法的新一段还没成形的那段期间：
+//    旧的那一段「暂时」仍然有效（不改动已确认的 C），正在形成的新段先用虚线「C?」标记，
+//    等它真正成形（legEvent 触发）再变成正式的 C。突破 C1 高点则属于 Base 突破，不画 C?。
+if not na(tentBox)
+    box.delete(tentBox)
+    tentBox := na
+if not na(tentLabel)
+    label.delete(tentLabel)
+    tentLabel := na
+if activeMode != 0 and cN >= 2 and not na(anchor) and not na(swingEnd)
+    float lastSegHi = array.get(cStart, cN - 1)   // 末段高点（做空为末段低点）
+    float baseHi    = array.get(cStart, 0)        // C1 高点 = Base 突破线
+    bool  brokeHi   = isLong ? (anchor > lastSegHi and anchor < baseHi) : (anchor < lastSegHi and anchor > baseHi)
+    if brokeHi
+        float tDepth = isLong ? (anchor - swingEnd) / anchor * 100 : (swingEnd - anchor) / anchor * 100
+        if showBoxes
+            tentBox := box.new(anchorBar, math.max(anchor, swingEnd), bar_index, math.min(anchor, swingEnd), border_color = color.new(color.orange, 20), border_style = line.style_dashed, bgcolor = color.new(color.orange, 92))
+        tentLabel := label.new(bar_index, swingEnd, "C? " + str.tostring(tDepth, "#.##") + "%", style = isLong ? label.style_label_up : label.style_label_down, color = color.new(color.orange, 20), textcolor = color.white, size = size.small)
 
 // —— 安全取值：数组为空时不碰 array.get/last，避免越界错误 ——
 float c1A       = na     // C1 波段起点 = 突破位（做多=高点，做空=低点）
