@@ -469,6 +469,7 @@ float stopLevel = na
 if cN >= 1
     buyLevel  := isLong ? lastStart * (1 + bufPct / 100) : lastStart * (1 - bufPct / 100)
     stopLevel := isLong ? lastEnd   * (1 - bufPct / 100) : lastEnd   * (1 + bufPct / 100)
+float riskPct = na(buyLevel) or na(stopLevel) or buyLevel == 0 ? na : math.abs(buyLevel - stopLevel) / buyLevel * 100
 plot(showBuyLv ? buyLevel : na,  "买点（末段C高+buffer）", color = color.new(color.lime, 0),   style = plot.style_linebr, linewidth = 2)
 plot(showBuyLv ? stopLevel : na, "止损（末段C低−buffer）", color = color.new(color.maroon, 0), style = plot.style_linebr, linewidth = 2)
 
@@ -522,7 +523,7 @@ if barstate.islast
     f_cell(4,  "C1 动到50均线", c1maTxt, cN >= 1 and c1Touched ? color.teal : color.gray)
     f_cell(5,  "买点 (≤10%)",  buyTxt, buyZone ? color.green : color.gray)
     string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
-         " · Stop " + str.tostring(stopLevel, format.mintick) + "（buffer " + str.tostring(bufPct, "#.###") + "%）"
+         " · 止损 " + str.tostring(stopLevel, format.mintick) + " · 风险 " + str.tostring(riskPct, "#.##") + "%（buffer " + str.tostring(bufPct, "#.###") + "%）"
     f_cell(6,  "买点/止损",   lvTxt, cN >= 1 ? color.teal : color.gray)
     f_cell(7,  "价格位置",     zoneTxt, zoneCol)
     f_cell(8,  "加分1 收缩合理 (+3)", score1OK ? "✔" : "✘", score1OK ? color.green : color.gray)
