@@ -74,9 +74,10 @@ bool  breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)   // 做�
 // 否则在日内图上算的是「每根K线」的金额，会比真正的日金额小很多
 float avgDollarVol = request.security(syminfo.tickerid, "D", ta.sma(close * volume, dollarLookback))
 bool  liqOK        = avgDollarVol > minDollarM * 1000000
-// 另外单看「最近 1 天」的交易金额有没有超过门槛（天图当日 收盘价×成交量，不做平均）
-float dayDollarVol = request.security(syminfo.tickerid, "D", close * volume)
-bool  dayLiqOK     = dayDollarVol > minDollarM * 1000000
+// 另外单看「过去 24 小时」的交易金额有没有超过门槛：
+// 取 1 小时图的 收盘价×成交量，滚动累加最近 24 根（= 过去 24 小时，币 7×24 连续）
+float h24DollarVol = request.security(syminfo.tickerid, "60", math.sum(close * volume, 24))
+bool  dayLiqOK     = h24DollarVol > minDollarM * 1000000
 
 // —— 加分项目：阳烛多阴烛少（做多）/ 阳烛少阴烛多（做空） ——
 bool bonusOK = mode != 0 and (isLong ? cntUp > cntDn : cntDn > cntUp)
@@ -110,7 +111,7 @@ if barstate.islast
     string brkTxt    = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
          "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
     string liqTxt    = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
-    string dayLiqTxt = (dayLiqOK ? "✔ " : "✘ ") + str.tostring(dayDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
+    string dayLiqTxt = (dayLiqOK ? "✔ " : "✘ ") + str.tostring(h24DollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
     string bonusTxt  = mode == 0 ? "—" : (bonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUp) + " 根 vs 阴烛 " + str.tostring(cntDn) + " 根"
     int okCount = (structVolOK ? 1 : 0) + (liqOK ? 1 : 0) + (bonusOK ? 1 : 0)
     string sumTxt = mode == 0 ? "暂停侦测" : str.tostring(okCount) + "/3" + (breakoutVolOK ? " + 突破放量 ✔" : "（突破日再看放量）")
@@ -119,6 +120,6 @@ if barstate.islast
     f_cell(1, "结构量能",    structTxt, structVolOK ? color.green : color.gray)
     f_cell(2, "突破量能",    brkTxt, breakoutVolOK ? color.green : color.gray)
     f_cell(3, "日均交易金额", liqTxt, liqOK ? color.green : color.red)
-    f_cell(4, "当日交易金额", dayLiqTxt, dayLiqOK ? color.green : color.red)
+    f_cell(4, "24小时交易金额", dayLiqTxt, dayLiqOK ? color.green : color.red)
     f_cell(5, "加分：烛数",   bonusTxt, bonusOK ? color.green : color.gray)
     f_cell(6, "Volume 总评",  sumTxt, okCount == 3 ? color.green : okCount == 2 ? color.teal : color.gray)
