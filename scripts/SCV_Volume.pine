@@ -25,7 +25,7 @@ grpVol = "② 量能"
 volLookback  = input.int(20,     "结构量能回看K线数",   minval = 1, group = grpVol, tooltip = "在这段期间比较 阳烛平均量 vs 阴烛平均量")
 volRatio     = input.float(1.2,  "量大倍数",            minval = 1.0, step = 0.1, group = grpVol, tooltip = "阳烛平均量 > 阴烛平均量 × 此倍数 = 阳烛量大（做空反过来）")
 volMALen     = input.int(50,     "交易量均线长度",      minval = 1, group = grpVol)
-breakoutMult = input.float(1.0,  "突破放量倍数",        minval = 1.0, step = 0.1, group = grpVol, tooltip = "放量阳烛 = 阳烛且 当根量 > 交易量均线(MA50)×此倍数。默认 1.0 = 只要超过 MA50 就算放量")
+breakoutMult = input.float(1.5,  "突破放量倍数",        minval = 1.0, step = 0.1, group = grpVol, tooltip = "突破量能：当根量 > 交易量均线(MA50)×此倍数 = 放量")
 
 grpLiq = "③ 流动性"
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpLiq, tooltip = "日均 收盘价×成交量 要超过此金额（单位=该股计价货币，美股即美元）")
@@ -79,8 +79,11 @@ bool  liqOK        = avgDollarVol > minDollarM * 1000000
 float h24DollarVol = request.security(syminfo.tickerid, "60", math.sum(close * volume, 24))
 bool  dayLiqOK     = h24DollarVol > minDollarM * 1000000
 
-// —— 加分项目：阳烛多阴烛少（做多）/ 阳烛少阴烛多（做空） ——
-bool bonusOK = mode != 0 and (isLong ? cntUp > cntDn : cntDn > cntUp)
+// —— 加分项目：放量阳烛多、放量阴烛少（做多）/ 放量阴烛多、放量阳烛少（做空） ——
+// 只算「放量」的蜡烛：量要超过 交易量均线(MA50) 才计入（量太小的当杂讯不计）
+int cntUpBig = int(math.sum(isUp and volume > volMA ? 1 : 0, volLookback))
+int cntDnBig = int(math.sum(isDn and volume > volMA ? 1 : 0, volLookback))
+bool bonusOK = mode != 0 and (isLong ? cntUpBig > cntDnBig : cntDnBig > cntUpBig)
 
 // ============================ 副图显示 =====================================
 // 成交量柱：阳烛绿、阴烛红、放量加深、十字星灰
@@ -112,7 +115,7 @@ if barstate.islast
          "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
     string liqTxt    = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
     string dayLiqTxt = (dayLiqOK ? "✔ " : "✘ ") + str.tostring(h24DollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
-    string bonusTxt  = mode == 0 ? "—" : (bonusOK ? "✔ " : "✘ ") + "阳烛 " + str.tostring(cntUp) + " 根 vs 阴烛 " + str.tostring(cntDn) + " 根"
+    string bonusTxt  = mode == 0 ? "—" : (bonusOK ? "✔ " : "✘ ") + "放量阳烛 " + str.tostring(cntUpBig) + " 根 vs 放量阴烛 " + str.tostring(cntDnBig) + " 根（量>MA50）"
     int okCount = (structVolOK ? 1 : 0) + (liqOK ? 1 : 0) + (bonusOK ? 1 : 0)
     string sumTxt = mode == 0 ? "暂停侦测" : str.tostring(okCount) + "/3" + (breakoutVolOK ? " + 突破放量 ✔" : "（突破日再看放量）")
 
