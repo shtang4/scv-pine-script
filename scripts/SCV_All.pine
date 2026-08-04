@@ -78,7 +78,7 @@ grpVol = "⑥ Volume"
 volLookback  = input.int(20,    "量能回看K线数",          minval = 1, group = grpVol, tooltip = "结构量能与烛数加分的统计期间")
 volRatio     = input.float(1.2, "量大倍数",               minval = 1.0, step = 0.1, group = grpVol)
 volMALen     = input.int(50,    "交易量均线长度",         minval = 1, group = grpVol)
-breakoutMult = input.float(1.5, "突破放量倍数",           minval = 1.0, step = 0.1, group = grpVol)
+breakoutMult = input.float(1.0, "突破放量倍数",           minval = 1.0, step = 0.1, group = grpVol, tooltip = "放量阳烛 = 阳烛且 当根量 > 交易量均线(MA50)×此倍数。默认 1.0 = 只要超过 MA50 就算放量")
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpVol)
 dollarLB     = input.int(20,    "交易金额平均回看天数",   minval = 1, group = grpVol, tooltip = "取几个交易日的日金额来平均")
 
