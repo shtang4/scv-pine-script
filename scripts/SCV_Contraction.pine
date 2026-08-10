@@ -22,8 +22,8 @@
 //    2. C1 深度在 20~35%                          +3
 //    3. Base 还是在第 1 或 2 个                    +2
 //    4. 突破区域 = Pivot Area                      +2
-//  Pivot Area / Cheat / Low Cheat：把 C1 深度切 3 等份
-//    做多：顶部=Pivot Area 中间=Cheat 底部=Low Cheat（做空镜像）
+//  Pivot Area / Cheap / Low Cheap：把 C1 深度切 3 等份
+//    做多：顶部=Pivot Area 中间=Cheap 底部=Low Cheap（做空镜像）
 //
 //  Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
 //    或退回 Stage 4/1（做空：升穿前 Base 高点或回到 Stage 2/1）→ 归零。
@@ -58,7 +58,7 @@ c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
 c1Max     = input.float(35.0, "加分2：C1 最大深度 (%)", group = grpScore)
 shrinkTol = input.float(1.0,  "加分1：收缩合理容差 (± 前段一半)", minval = 0, step = 0.5, group = grpScore, tooltip = "每段要落在「前段一半 ± 此值」之内才算合理。太小(缩太多)或太大(缩太少)都不给分")
 c1Pen200  = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, group = grpScore, tooltip = "C1 低点(做多)深到碰/跌破 200均线 = 回调太深太弱，扣分（做空镜像）")
-showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheat/Low Cheat）", group = grpScore)
+showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
 grpStage = "④ Stage（用于 Base 计数）"
 stageTF  = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股改成 240（4小时）")
@@ -461,10 +461,10 @@ bool score2OK = cN >= 1 and c1Depth >= c1Min and c1Depth <= c1Max
 bool score3OK = activeMode != 0 and baseCount + 1 <= 2
 
 // —— C1 切成 3 等份 ——
-// 做多：顶部 1/3 = Pivot Area，中间 = Cheat，底部 = Low Cheat（做空镜像）
+// 做多：顶部 1/3 = Pivot Area，中间 = Cheap，底部 = Low Cheap（做空镜像）
 float zThird = (c1A - c1B) / 3                    // 做多为正、做空为负 → 公式两边通用
-float z1 = c1A - zThird                           // Pivot Area 与 Cheat 的分界
-float z2 = c1A - 2 * zThird                       // Cheat 与 Low Cheat 的分界
+float z1 = c1A - zThird                           // Pivot Area 与 Cheap 的分界
+float z2 = c1A - 2 * zThird                       // Cheap 与 Low Cheap 的分界
 
 // 加分4 (+2)：突破区域 = Pivot Area
 //   做多：最后一段收缩的高点 落在 Pivot Area（顶部 1/3）内
@@ -542,12 +542,12 @@ plot(showBuyLv ? stopLevel : na, "止损（末段C低−buffer）", color = colo
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
 pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
-pZ1  = plot(showZones ? z1 : na, "Pivot/Cheat 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
-pZ2  = plot(showZones ? z2 : na, "Cheat/Low Cheat 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pZ1  = plot(showZones ? z1 : na, "Pivot/Cheap 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pZ2  = plot(showZones ? z2 : na, "Cheap/Low Cheap 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 pBot = plot(showZones ? c1B : na, "C1 收缩终点",         color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 fill(pBrk, pZ1, color = showZones ? color.new(color.green,  82) : na, title = "Pivot Area（靠突破位 1/3）")
-fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "Cheat（中间 1/3）")
-fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheat（离突破位最远 1/3）")
+fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "Cheap（中间 1/3）")
+fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheap（离突破位最远 1/3）")
 
 // 买点区域背景
 bgcolor(buyZone ? color.new(isLong ? color.green : color.red, 85) : na)
@@ -575,8 +575,8 @@ if barstate.islast
          "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"
     // 当前价格在 C1 的哪个 1/3 区
     string zoneTxt = cN >= 1 ? (isLong ?
-         (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheat（中间 1/3）" : "Low Cheat（底部 1/3）") :
-         (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheat（中间 1/3）" : "Low Cheat（顶部 1/3）")) : "—"
+         (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheap（中间 1/3）" : "Low Cheap（底部 1/3）") :
+         (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheap（中间 1/3）" : "Low Cheap（顶部 1/3）")) : "—"
     color zoneCol = cN >= 1 ? (isLong ? (close >= z1 ? color.green : close >= z2 ? color.orange : color.blue) :
          (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
     // 突破区域 = 末段C的高点（＝挂单位）落在 C1 三等份的哪一份，附上确定性含义
@@ -584,10 +584,10 @@ if barstate.islast
     color  brkZoneCol = color.gray
     if cN >= 2
         bool inPivot = isLong ? lastStart >= z1 : lastStart <= z1
-        bool inCheat = not inPivot and (isLong ? lastStart >= z2 : lastStart <= z2)
+        bool inCheap = not inPivot and (isLong ? lastStart >= z2 : lastStart <= z2)
         brkZoneTxt := inPivot ? "Pivot Area → 确定性最高" :
-             inCheat ? "Cheat Area → 确定性 + 成本优势" : "Low Cheat → 只有成本优势"
-        brkZoneCol := inPivot ? color.green : inCheat ? color.orange : color.blue
+             inCheap ? "Cheap Area → 确定性 + 成本优势" : "Low Cheap → 只有成本优势"
+        brkZoneCol := inPivot ? color.green : inCheap ? color.orange : color.blue
 
     f_cell(0,  "排列 / 方向",  modeTxt, activeMode == 1 ? color.green : activeMode == -1 ? color.red : color.gray)
     bool countPaused = activeMode == 1 ? (stage == 1 or stage == 4) : activeMode == -1 ? (stage == 1 or stage == 2) : true
