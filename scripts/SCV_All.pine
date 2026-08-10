@@ -65,7 +65,8 @@ cMethod        = input.string("数蜡烛", "Contraction 侦测方式", options =
 pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大=只抓大波段、段数少、确认慢；越小=更灵敏但杂讯多。对不上手画的就调这个")
 dojiPct        = input.float(50.0, "变盘线：实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "蜡烛分三种：变盘线 = 上下影线合计比实体长（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色。影线合计 = 范围 − 实体，所以「实体 < 范围的 50%」即为变盘线；调低会更严格。此定义 S / C / V 全部共用")
 sealBars       = input.int(3,      "数蜡烛：低点确认K线数", minval = 1, group = grpC, tooltip = "只在「数蜡烛」模式用：回调低点连续这么多根没再被跌破 = 这段收缩结束")
-minLegPct      = input.float(1.5,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
+minLegPct      = input.float(1.5,  "最小波段深度 · 股/币 (%)", minval = 0.01, step = 0.1, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
+minLegPctFx    = input.float(0.2,  "最小波段深度 · 汇/金/指/期 (%)", minval = 0.01, step = 0.05, group = grpC, tooltip = "汇/金/指/期的收缩通常很浅（C1 0.94%、C2 0.67% 很常见），门槛要比股/币小很多，否则整段结构会被当杂讯滤光。按「买点/止损 Buffer → 资产类型」自动选用哪一个")
 requireShrink  = input.bool(true, "结构必须波段缩小（每段比上一段浅）", group = grpC, tooltip = "教材：波段缩小 + 底部抬高。关掉的话只要低点抬高就算新的一段，横盘震荡会画出一堆忽大忽小的 C")
 requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
@@ -131,6 +132,8 @@ bool strictStack = stackMode == "严格：50>150>200"
 bullStack = strictStack ? (ma50 > ma150 and ma150 > ma200) : ma150 > ma200   // 多头排列
 bearStack = strictStack ? (ma50 < ma150 and ma150 < ma200) : ma150 < ma200   // 空头排列
 int mode = bullStack ? 1 : bearStack ? -1 : 0
+// 最小波段深度按资产类型选：汇/金/指/期的 C 通常只有零点几%，门槛要小很多
+float minLegUse = assetType == "股/币" ? minLegPct : minLegPctFx
 
 // ============================ S · Stage ====================================
 // Stage 只看 stageTF（默认天图）的 150 均线：整套状态机在该周期上计算，
@@ -515,7 +518,7 @@ if activeMode != 0
         // 正常追踪已保证 swingEndBar ≥ anchorBar；这里显式守一层，杜绝任何「低点在高点之前」的段
         bool afterHigh = legEndBar >= legStartBar
 
-        if depth >= minLegPct and afterHigh
+        if depth >= minLegUse and afterHigh
             bool changed = false
             if array.size(cDepth) == 0
                 // C1：要求「低点(做多)/高点(做空)那根是对应排列」且「动到 50 均线」
