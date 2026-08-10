@@ -90,10 +90,11 @@ f_stageCalc() =>
     float vma = ta.sma(volume, volLen)             // 50 交易量均线
     bool abv = close > ma               // 价格在 150 均线「上面」
     bool lv  = volume < vma             // Stage1 交易量低迷：量在 50 交易量均线之下
-    // Stage2 阳烛量放大：阳烛的量超过 50 交易量均线，且这种阳烛比放量阴烛多
+    // Stage2 阳烛量放大 / Stage3 阴烛量放大：该色蜡烛的量超过 50 交易量均线，且比反向的放量烛多
     int  upB = int(math.sum(close > open and volume > vma ? 1 : 0, volLookback))
     int  dnB = int(math.sum(close < open and volume > vma ? 1 : 0, volLookback))
-    bool bva = upB > dnB
+    bool bva = upB > dnB                // 阳烛量放大
+    bool bea = dnB > upB                // 阴烛量放大
     // Stage2 强度：价格离 150 均线多远（乖离%），越远强度越大、持续性越强
     float stg = (close - ma) / ma * 100
     // 横盘时长：以「明显高点」当区间顶，价格没有明显突破它（涨不上去）就一直算横盘。
@@ -104,11 +105,11 @@ f_stageCalc() =>
         rTop   := high                  // 明显突破前高 → 区间重设，横盘重新算起
         rStart := time
     int swD = na(rStart) ? 0 : int((time - rStart) / 86400000)
-    [st, sl, fb, cdn, ma, abv, lv, swD, bva, stg]  // ma 用来判断该周期有没有 150 均线
+    [st, sl, fb, cdn, ma, abv, lv, swD, bva, stg, bea]  // ma 用来判断该周期有没有 150 均线
 
 // 新图自动切换：天图还没有 150 均线（K线不够）→ Stage 改看 4 小时
-[stgD, slpD, fbD, cdnD, maD, abvD, lvD, swDD, bvaD, stgSD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
-[stgN, slpN, fbN, cdnN, maN, abvN, lvN, swDN, bvaN, stgSN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
+[stgD, slpD, fbD, cdnD, maD, abvD, lvD, swDD, bvaD, stgSD, beaD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+[stgN, slpN, fbN, cdnN, maN, abvN, lvN, swDN, bvaN, stgSN, beaN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
 bool   isNewChart  = na(maD)                       // 天图无 150 均线 = 新图
 string stageTFUsed = isNewChart ? newTF : stageTF  // Stage 实际使用的周期
 int    stage       = isNewChart ? stgN : stgD
@@ -120,6 +121,7 @@ bool   stageLowVol   = isNewChart ? lvN  : lvD     // 交易量低迷（量 < 50
 int    sidewaysDur   = isNewChart ? swDN : swDD    // 横盘天数（日历天）
 bool   bullVolUp     = isNewChart ? bvaN : bvaD    // Stage2 阳烛量放大
 float  stageStrength = isNewChart ? stgSN : stgSD  // Stage2 强度 = 离 150 均线多远(%)
+bool   bearVolUp     = isNewChart ? beaN : beaD    // Stage3 阴烛量放大
 trendUp   = slope150 >  flatPct        // 趋上
 trendDown = slope150 < -flatPct        // 趋下
 trendFlat = not trendUp and not trendDown  // 趋平
@@ -143,6 +145,9 @@ stage1Confirmed = stage == 1 and trendFlat and priceAbove150 and stageLowVol and
 //   ③ 强度：价格在均线上面，离均线越远强度越大、持续性越强
 stage2Confirmed = stage == 2 and trendUp and bullVolUp and priceAbove150
 bool stage2Strong = stageStrength >= strongPct
+// Stage 3 成立的三个条件（Stage 2 涨完之后转下来）：
+//   ① 150 均线趋平  ② 价格跌穿 / 在 150 均线下面  ③ 阴烛量放大
+stage3Confirmed = stage == 3 and trendFlat and not priceAbove150 and bearVolUp
 
 // Stage 3 警讯：跌穿 150 均线
 stage3BreakMA = stage == 3 and crossDn150
@@ -240,7 +245,8 @@ f_cell(int row, string k, string v, color c) =>
 if barstate.islast
     stageTxt = "Stage " + str.tostring(stage) +
          (stage == 1 ? stage1Confirmed ? "（四项条件都成立）" : "（条件未齐）" :
-          stage == 2 ? stage2Confirmed ? "（三项条件都成立）" : "（条件未齐）" : "")
+          stage == 2 ? stage2Confirmed ? "（三项条件都成立）" : "（条件未齐）" :
+          stage == 3 ? stage3Confirmed ? "（三项条件都成立）" : "（条件未齐）" : "")
     // Stage 1 的四个条件：趋平 / 价在线上 / 量低迷 / 横盘≥半年
     // Stage 2 的三个条件：趋上 / 阳烛量放大 / 强度（离均线多远）
     string sCondTxt = "—"
@@ -256,6 +262,12 @@ if barstate.islast
              (trendUp ? "✔" : "✘") + "趋上 " + (bullVolUp ? "✔" : "✘") + "阳烛量放大 " +
              "强度 " + str.tostring(stageStrength, "#.#") + "%（离150均线）" + (stage2Strong ? " 强" : "")
         sCondCol := stage2Confirmed ? (stage2Strong ? color.green : color.teal) : color.gray
+    else if stage == 3
+        sCondTxt := (stage3Confirmed ? "⚠️ 成立　" : "⏳ 未成立　") +
+             (trendFlat ? "✔" : "✘") + "趋平 " +
+             (not priceAbove150 ? "✔" : "✘") + "价在线下" + (crossDn150 ? "（本根跌穿）" : "") + " " +
+             (bearVolUp ? "✔" : "✘") + "阴烛量放大"
+        sCondCol := stage3Confirmed ? color.red : color.gray
     if stage == 3 or stage == 4
         stageTxt := stageTxt + " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
     if stage3Choppy

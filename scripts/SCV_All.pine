@@ -152,10 +152,11 @@ f_stageCalc() =>
     float vma = ta.sma(volume, volMALen)           // 50 交易量均线
     bool abv = close > ma               // 价格在 150 均线「上面」
     bool lv  = volume < vma             // Stage1 交易量低迷：量在 50 交易量均线之下
-    // Stage2 阳烛量放大：阳烛的量超过 50 交易量均线，且这种阳烛比放量阴烛多
+    // Stage2 阳烛量放大 / Stage3 阴烛量放大：该色蜡烛的量超过 50 交易量均线，且比反向的放量烛多
     int  upB = int(math.sum(close > open and volume > vma ? 1 : 0, volLookback))
     int  dnB = int(math.sum(close < open and volume > vma ? 1 : 0, volLookback))
-    bool bva = upB > dnB
+    bool bva = upB > dnB                // 阳烛量放大
+    bool bea = dnB > upB                // 阴烛量放大
     // Stage2 强度：价格离 150 均线多远（乖离%），越远强度越大、持续性越强
     float stg = (close - ma) / ma * 100
     // 横盘时长：以「明显高点」当区间顶，价格没有明显突破它（涨不上去）就一直算横盘。
@@ -166,11 +167,11 @@ f_stageCalc() =>
         rTop   := high                  // 明显突破前高 → 区间重设，横盘重新算起
         rStart := time
     int swD = na(rStart) ? 0 : int((time - rStart) / 86400000)
-    [st, sl, fb, cdn, ma, abv, lv, swD, bva, stg]  // ma 用来判断该周期有没有 150 均线
+    [st, sl, fb, cdn, ma, abv, lv, swD, bva, stg, bea]  // ma 用来判断该周期有没有 150 均线
 
 // 新图自动切换：天图还没有 150 均线（K线不够）→ Stage 改看 4 小时
-[stgD, slpD, fbD, cdnD, maD, abvD, lvD, swDD, bvaD, stgSD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
-[stgN, slpN, fbN, cdnN, maN, abvN, lvN, swDN, bvaN, stgSN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
+[stgD, slpD, fbD, cdnD, maD, abvD, lvD, swDD, bvaD, stgSD, beaD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+[stgN, slpN, fbN, cdnN, maN, abvN, lvN, swDN, bvaN, stgSN, beaN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
 bool   isNewChart  = na(maD)                       // 天图无 150 均线 = 新图
 string stageTFUsed = isNewChart ? newTF : stageTF  // Stage 实际使用的周期
 int    stage       = isNewChart ? stgN : stgD
@@ -182,6 +183,7 @@ bool   stageLowVol   = isNewChart ? lvN  : lvD     // 交易量低迷（量 < 50
 int    sidewaysDur   = isNewChart ? swDN : swDD    // 横盘天数（日历天）
 bool   bullVolUp     = isNewChart ? bvaN : bvaD    // Stage2 阳烛量放大
 float  stageStrength = isNewChart ? stgSN : stgSD  // Stage2 强度 = 离 150 均线多远(%)
+bool   bearVolUp     = isNewChart ? beaN : beaD    // Stage3 阴烛量放大
 trendUp   = slope150 >  flatPct
 trendDown = slope150 < -flatPct
 trendFlat = not trendUp and not trendDown
@@ -223,6 +225,9 @@ stage1Confirmed = stage == 1 and trendFlat and priceAbove150 and stageLowVol and
 //   ③ 强度：价格在均线上面，离均线越远强度越大、持续性越强
 stage2Confirmed = stage == 2 and trendUp and bullVolUp and priceAbove150
 bool stage2Strong = stageStrength >= strongPct
+// —— Stage 3 成立的三个条件（Stage 2 涨完之后转下来） ——
+//   ① 150 均线趋平  ② 价格跌穿 / 在 150 均线下面  ③ 阴烛量放大
+stage3Confirmed = stage == 3 and trendFlat and not priceAbove150 and bearVolUp
 
 // —— RS 相对强度（近似 RS Rating） ——
 benchClose = request.security(rsSymbol, timeframe.period, close)
@@ -744,14 +749,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 29, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 30, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 28)
+    table.clear(panel, 0, 0, 1, 29)
     int r = 0
 
     // —— 综合 ——
@@ -825,6 +830,13 @@ if barstate.islast
                  (stage2Strong ? " 强" : "")
             r := f_cell(r, "S · Stage 2 条件", (stage2Confirmed ? "✅ 成立　" : "⏳ 未成立　") + s2Txt,
                  stage2Confirmed ? (stage2Strong ? color.green : color.teal) : color.gray)
+        // Stage 3 的三个条件逐项显示：趋平 / 价跌穿150均线 / 阴烛量放大
+        if stage == 3
+            string s3Txt = (trendFlat ? "✔" : "✘") + "趋平 " +
+                 (not priceAbove150 ? "✔" : "✘") + "价在线下" + (crossDn150 ? "（本根跌穿）" : "") + " " +
+                 (bearVolUp ? "✔" : "✘") + "阴烛量放大"
+            r := f_cell(r, "S · Stage 3 条件", (stage3Confirmed ? "⚠️ 成立　" : "⏳ 未成立　") + s3Txt,
+                 stage3Confirmed ? color.red : color.gray)
         r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
         r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
         r := f_cell(r, "S · 大小周期", mtfTxt + "（" + bigTF + " vs " + timeframe.period + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
