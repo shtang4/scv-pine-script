@@ -45,6 +45,7 @@ flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step =
 sidewaysDays = input.int(180,   "Stage 1 横盘最少天数",   minval = 1,  group = grpStage, tooltip = "横盘至少半年 = 180 天。用「日历天数」算（跟 TradingView 量尺的 286d 一样），股票/币都通用")
 sidewaysTol  = input.float(3.0, "Stage 1 横盘容差 (%)",   minval = 0,  step = 0.5, group = grpStage, tooltip = "从明显高点算起，价格没有超过该高点×(1+容差) = 还在横盘（涨不上去、突破不上）")
 strongPct    = input.float(10.0, "Stage 2 强度门槛 (%)",  minval = 0,  step = 1, group = grpStage, tooltip = "强度 = 价格离 150 均线多远(%)。离越远强度越大、持续性越强；超过此门槛面板标「强」")
+steepPct     = input.float(8.0,  "Stage 4 陡度门槛 (%)",  minval = 0,  step = 1, group = grpStage, tooltip = "150均线在回看期内的跌幅。跌得越陡（越接近垂直趋下）下跌延续性越强；超过此门槛面板标「垂直趋下」")
 alignPen1    = input.int(1,     "排列小扣分：50在150下",   minval = 0,  group = grpStage, tooltip = "多头排列(150在200上)里，50 在 150 下但仍在 200 上 = 小扣分（做空镜像：50在150上但仍在200下）")
 alignPen2    = input.int(2,     "排列大扣分：50在150&200下", minval = 0,  group = grpStage, tooltip = "50 同时在 150 和 200 下 = 大扣分（比只在150下更弱）")
 cutDrawdown   = input.float(35.0, "Stage3 清仓跌幅 (%)",     minval = 1, step = 1, group = grpStage, tooltip = "从周期高点回落此% = 清仓信号。股票/加密 ≈35，其他资产 ≈10")
@@ -228,6 +229,12 @@ bool stage2Strong = stageStrength >= strongPct
 // —— Stage 3 成立的三个条件（Stage 2 涨完之后转下来） ——
 //   ① 150 均线趋平  ② 价格跌穿 / 在 150 均线下面  ③ 阴烛量放大
 stage3Confirmed = stage == 3 and trendFlat and not priceAbove150 and bearVolUp
+// —— Stage 4 = 做空时期 ——
+//   ① 150 均线趋下（一进入趋下就是 Stage 4）  ② 价格在 150 均线下面
+//   ③ 延续性：均线从慢慢趋下变成「垂直趋下」，跌得越陡延续性越强
+//   Stage 4 一路跌到均线开始趋平 = Stage 4 结束、周期循环回 Stage 1（状态机已自动处理）
+stage4Confirmed = stage == 4 and trendDown and not priceAbove150
+bool stage4Steep = -slope150 >= steepPct   // 垂直趋下 = 均线跌幅够陡
 
 // —— RS 相对强度（近似 RS Rating） ——
 benchClose = request.security(rsSymbol, timeframe.period, close)
@@ -749,14 +756,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 30, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 31, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 29)
+    table.clear(panel, 0, 0, 1, 30)
     int r = 0
 
     // —— 综合 ——
@@ -837,6 +844,14 @@ if barstate.islast
                  (bearVolUp ? "✔" : "✘") + "阴烛量放大"
             r := f_cell(r, "S · Stage 3 条件", (stage3Confirmed ? "⚠️ 成立　" : "⏳ 未成立　") + s3Txt,
                  stage3Confirmed ? color.red : color.gray)
+        // Stage 4 的条件逐项显示：趋下 / 价在线下 / 陡度（垂直趋下=延续性强）
+        if stage == 4
+            string s4Txt = (trendDown ? "✔" : "✘") + "趋下 " + (not priceAbove150 ? "✔" : "✘") + "价在线下 " +
+                 "陡度 " + str.tostring(slope150, "#.#") + "%" +
+                 (stage4Steep ? "（垂直趋下·延续性强）" : "（慢慢趋下）") +
+                 " · 离线 " + str.tostring(math.abs(stageStrength), "#.#") + "%"
+            r := f_cell(r, "S · Stage 4 条件", (stage4Confirmed ? "🔻 做空时期　" : "⏳ 未成立　") + s4Txt,
+                 stage4Confirmed ? color.red : color.gray)
         r := f_cell(r, "S · 交易量", volSTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
         r := f_cell(r, "S · RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
         r := f_cell(r, "S · 大小周期", mtfTxt + "（" + bigTF + " vs " + timeframe.period + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
