@@ -107,6 +107,8 @@ sellVolMult   = input.float(1.5,  "主动③④：大交易量 = 量 > 均量 ×
 consecDn      = input.int(3,      "主动④：连续阴烛根数",    minval = 2, group = grpSell)
 trailBuf      = input.float(1.0,  "被动：50均线/前波段底 下方 buffer (%)", minval = 0, step = 0.25, group = grpSell)
 showSellLv    = input.bool(true,  "画出止盈 / 移动止盈线", group = grpSell)
+enableBE      = input.bool(true,  "启用 Break Even（止损移到进场价）", group = grpSell, tooltip = "进场后，到达 BE 比例 或 50均线碰到进场价 → 止损自动移到进场价，之后回落就是不赚不赔出场")
+beOffset      = input.float(0.5,  "BE 比例 = 盈亏比目标 −", minval = 0.1, step = 0.5, group = grpSell, tooltip = "教材公式：目标 1:2 → BE 放 1:1.5；目标 1:1.5 → BE 放 1:1。所以 BE 比例 = 目标 − 0.5")
 
 grpPanel = "⑨ 面板"
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
@@ -775,8 +777,47 @@ float trailMA    = isLong ? ma50 * (1 - trailBuf / 100) : ma50 * (1 + trailBuf /
 float trailSwing = na(lastEnd) ? na : (isLong ? lastEnd * (1 - trailBuf / 100) : lastEnd * (1 + trailBuf / 100))
 float trailLevel = na(trailSwing) ? trailMA : (isLong ? math.max(trailMA, trailSwing) : math.min(trailMA, trailSwing))
 
+// ===================== Break Even（止损移到进场价） =======================
+// 进场后，只要下面任一情况发生，就把止损往上移到「进场价」，之后回落就是不赚不赔出场：
+//   ① 价格到达 BE 比例 —— BE = 盈亏比目标 − 0.5
+//      （目标 1:2 → BE 1:1.5；目标 1:1.5 → BE 1:1）
+//   ② 50 均线从下方涨上来碰到进场价（做空镜像：从上方跌下来碰到进场价）
+// 触发后价格继续涨不受影响，一样在 1:2 那边止盈。
+float beRatio = math.max(rrTarget - beOffset, 0.1)
+var float posEntry = na       // 进场价（触发买点那一刻锁定）
+var float posStop  = na       // 目前的止损（BE 触发后 = 进场价）
+var float posBE    = na       // BE 触发价位
+var float posTP    = na       // 止盈目标
+var bool  posBEHit = false    // 止损是否已经移到进场价
+if enableBE and activeMode != 0
+    // 进场：价格触发买点 → 锁定这笔的进场价/止损/BE/止盈
+    if na(posEntry) and not na(buyLevel) and not na(stopLevel) and (isLong ? high >= buyLevel : low <= buyLevel)
+        posEntry := buyLevel
+        posStop  := stopLevel
+        posBE    := isLong ? buyLevel + (buyLevel - stopLevel) * beRatio : buyLevel - (stopLevel - buyLevel) * beRatio
+        posTP    := isLong ? buyLevel + (buyLevel - stopLevel) * rrTarget : buyLevel - (stopLevel - buyLevel) * rrTarget
+        posBEHit := false
+    if not na(posEntry)
+        bool beByPrice = isLong ? high >= posBE : low <= posBE      // ① 到达 BE 比例
+        bool beByMA    = isLong ? ma50 >= posEntry : ma50 <= posEntry // ② 50均线碰到进场价
+        if not posBEHit and (beByPrice or beByMA)
+            posBEHit := true
+            posStop  := posEntry        // ← 止损移到进场价
+        // 碰到止损或到达止盈 → 这笔结束
+        if (isLong ? low <= posStop : high >= posStop) or (isLong ? high >= posTP : low <= posTP)
+            posEntry := na
+            posStop  := na
+            posBE    := na
+            posTP    := na
+            posBEHit := false
+bool beJustHit = posBEHit and not posBEHit[1]
+
 plot(showSellLv and not na(tpRR) ? tpRR : na, "止盈（盈亏比目标）", color = color.new(color.yellow, 0), style = plot.style_linebr, linewidth = 2)
 plot(showSellLv and rideMode ? trailLevel : na, "移动止盈（50均线/前波段底−buffer）", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
+plot(enableBE and not na(posBE) ? posBE : na, "BE 触发价", color = color.new(color.aqua, 0), style = plot.style_linebr, linewidth = 1)
+plot(enableBE and not na(posStop) ? posStop : na, "目前止损（BE 后 = 进场价）", color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 2)
+plotshape(beJustHit, "Break Even 触发", style = shape.labelup, location = location.belowbar, color = color.new(color.fuchsia, 10), text = "BE", textcolor = color.white, size = size.tiny)
+alertcondition(beJustHit, "Break Even 触发", "到 BE 点了：把止损移到进场价")
 plotshape(sellClimax and not sellClimax[1], "卖出③ 高位大波动大量", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 10), text = "高位大量", textcolor = color.white, size = size.tiny)
 plotshape(sellVolDump and not sellVolDump[1], "卖出④ 连续阴烛后大量阴烛", style = shape.labeldown, location = location.abovebar, color = color.new(color.maroon, 10), text = "连阴大量", textcolor = color.white, size = size.tiny)
 
@@ -810,14 +851,14 @@ plotshape(breakoutVolOK and isLong,     "放量阳烛", style = shape.circle, lo
 plotshape(breakoutVolOK and not isLong, "放量阴烛", style = shape.circle, location = location.abovebar, color = color.new(color.red, 20),   size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 31, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 32, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
     row + 1
 
 if barstate.islast
-    table.clear(panel, 0, 0, 1, 30)
+    table.clear(panel, 0, 0, 1, 31)
     int r = 0
 
     // —— 综合 ——
@@ -959,6 +1000,11 @@ if barstate.islast
         string tpTxt = na(tpRR) ? "—" : "1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(tpRR, format.mintick) +
              " · 平均盈利×" + str.tostring(avgProfitMult, "#.#") + " → " + str.tostring(tpAvg, format.mintick)
         r := f_cell(r, "止盈目标", tpTxt, na(tpRR) ? color.gray : color.teal)
+        string beTxt = not enableBE ? "已关闭" : na(posEntry) ? "未进场" :
+             posBEHit ? "✅ 已触发 → 止损已移到进场价 " + str.tostring(posEntry, format.mintick) :
+             "⏳ 等 1:" + str.tostring(beRatio, "#.#") + " → " + str.tostring(posBE, format.mintick) +
+             "　或 50均线碰到 " + str.tostring(posEntry, format.mintick)
+        r := f_cell(r, "Break Even", beTxt, not enableBE or na(posEntry) ? color.gray : posBEHit ? color.fuchsia : color.teal)
         string sellTxt = rideMode ? "被动：移动止盈 " + str.tostring(trailLevel, format.mintick) : "主动：到目标就走（非 Stage2/Base1-2）"
         if sellClimax
             sellTxt := "⚠️ 高位+大波动+大量 → 减仓"
