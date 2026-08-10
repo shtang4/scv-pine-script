@@ -36,6 +36,7 @@ len50  = input.int(50,  "50 均线",  minval = 1, group = grpMA)
 len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 showMA = input.bool(true, "显示均线", group = grpMA)
+stackMode = input.string("宽松：150>200", "多头/空头排列定义", options = ["宽松：150>200", "严格：50>150>200"], group = grpMA, tooltip = "宽松：只要 150 在 200 上就算多头排列，50 的位置只影响扣分档次（C1 可以早一点开始）。严格：要 50 在最上、150 中间、200 最下的完美排列才算（教材定义，C1 会出现得晚、数量少）。空头排列镜像")
 
 grpStage = "② Stage"
 stageTF      = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股天图没有150均线时改成 240（4小时）")
@@ -123,8 +124,11 @@ plot(showMA ? ma150 : na, "150均线", color = color.green, linewidth = 2)
 plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
 // 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
-bullStack = ma150 > ma200   // 多头排列
-bearStack = ma150 < ma200   // 空头排列
+// 宽松：只要 150 在 200 上（50 的位置只决定扣分档次）
+// 严格：50 在最上、150 中间、200 最下的完美排列（教材定义）
+bool strictStack = stackMode == "严格：50>150>200"
+bullStack = strictStack ? (ma50 > ma150 and ma150 > ma200) : ma150 > ma200   // 多头排列
+bearStack = strictStack ? (ma50 < ma150 and ma150 < ma200) : ma150 < ma200   // 空头排列
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 
 // ============================ S · Stage ====================================
@@ -803,7 +807,7 @@ if barstate.islast
 
     // —— 综合 ——
     // 排列跟着当前图表周期算，括号里标出是哪个周期
-    string stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + "（" + timeframe.period + "）"
+    string stackTxt = (bullStack ? "多头排列" : bearStack ? "空头排列" : "无排列") + "（" + timeframe.period + (strictStack ? " 严格" : " 宽松") + "）"
     // 可否交易 = 天图 Stage 与当前周期排列是否一致：
     //   Stage 1/3 → 不交易 (S)
     //   Stage 2 + 多头排列 → 可交易 (多 S+)；Stage 2 + 空头排列 → 不交易 (多 S-)

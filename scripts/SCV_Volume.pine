@@ -20,6 +20,7 @@ grpMA = "① 均线（判断多头/空头排列）"
 len50  = input.int(50,  "50 均线",  minval = 1, group = grpMA)
 len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
+stackMode = input.string("宽松：150>200", "多头/空头排列定义", options = ["宽松：150>200", "严格：50>150>200"], group = grpMA, tooltip = "宽松：只要 150 在 200 上就算多头排列，50 的位置只影响扣分档次（C1 可以早一点开始）。严格：要 50 在最上、150 中间、200 最下的完美排列才算（教材定义，C1 会出现得晚、数量少）。空头排列镜像")
 
 grpVol = "② 量能"
 volLookback  = input.int(20,     "量能回看K线数",       minval = 1, group = grpVol, tooltip = "在这段期间比较 放量阳烛的量 vs 放量阴烛的量")
@@ -42,9 +43,11 @@ panelSize = panelSizeTxt == "极小" ? size.tiny : panelSizeTxt == "小" ? size.
 ma50  = ta.sma(close, len50)
 ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
-// 多头排列 = 150 在 200 上（50 的位置只决定扣分档次，不影响排列成立）
-bullStack = ma150 > ma200
-bearStack = ma150 < ma200
+// 宽松：只要 150 在 200 上（50 的位置只决定扣分档次）
+// 严格：50 在最上、150 中间、200 最下的完美排列（教材定义）
+bool strictStack = stackMode == "严格：50>150>200"
+bullStack = strictStack ? (ma50 > ma150 and ma150 > ma200) : ma150 > ma200
+bearStack = strictStack ? (ma50 < ma150 and ma150 < ma200) : ma150 < ma200
 int mode = bullStack ? 1 : bearStack ? -1 : 0
 bool isLong = mode == 1
 
