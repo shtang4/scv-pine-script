@@ -789,22 +789,30 @@ var float posStop  = na       // 目前的止损（BE 触发后 = 进场价）
 var float posBE    = na       // BE 触发价位
 var float posTP    = na       // 止盈目标
 var bool  posBEHit = false    // 止损是否已经移到进场价
-if enableBE and activeMode != 0
-    // 进场：价格触发买点 → 锁定这笔的进场价/止损/BE/止盈
+bool entryJustHit = false     // 本根触发买点（可挂警报）
+bool tpJustHit    = false     // 本根到达止盈目标（可挂警报）
+bool slJustHit    = false     // 本根碰到止损
+if activeMode != 0
+    // 进场：价格触发买点 → 一次锁定这笔的 进场价 / 止损 / BE / 止盈 四个数字
     if na(posEntry) and not na(buyLevel) and not na(stopLevel) and (isLong ? high >= buyLevel : low <= buyLevel)
         posEntry := buyLevel
         posStop  := stopLevel
         posBE    := isLong ? buyLevel + (buyLevel - stopLevel) * beRatio : buyLevel - (stopLevel - buyLevel) * beRatio
         posTP    := isLong ? buyLevel + (buyLevel - stopLevel) * rrTarget : buyLevel - (stopLevel - buyLevel) * rrTarget
         posBEHit := false
+        entryJustHit := true
     if not na(posEntry)
-        bool beByPrice = isLong ? high >= posBE : low <= posBE      // ① 到达 BE 比例
-        bool beByMA    = isLong ? ma50 >= posEntry : ma50 <= posEntry // ② 50均线碰到进场价
-        if not posBEHit and (beByPrice or beByMA)
-            posBEHit := true
-            posStop  := posEntry        // ← 止损移到进场价
-        // 碰到止损或到达止盈 → 这笔结束
-        if (isLong ? low <= posStop : high >= posStop) or (isLong ? high >= posTP : low <= posTP)
+        // Break Even：到达 BE 比例 或 50均线碰到进场价 → 止损移到进场价
+        if enableBE
+            bool beByPrice = isLong ? high >= posBE : low <= posBE        // ① 到达 BE 比例
+            bool beByMA    = isLong ? ma50 >= posEntry : ma50 <= posEntry // ② 50均线碰到进场价
+            if not posBEHit and (beByPrice or beByMA)
+                posBEHit := true
+                posStop  := posEntry        // ← 止损移到进场价
+        // 主动套利：到达止盈目标 → 出场（交易所能挂 TP 就提前挂，不能就靠警报手动关单）
+        tpJustHit := isLong ? high >= posTP : low <= posTP
+        slJustHit := isLong ? low <= posStop : high >= posStop
+        if tpJustHit or slJustHit
             posEntry := na
             posStop  := na
             posBE    := na
@@ -817,7 +825,11 @@ plot(showSellLv and rideMode ? trailLevel : na, "移动止盈（50均线/前波�
 plot(enableBE and not na(posBE) ? posBE : na, "BE 触发价", color = color.new(color.aqua, 0), style = plot.style_linebr, linewidth = 1)
 plot(enableBE and not na(posStop) ? posStop : na, "目前止损（BE 后 = 进场价）", color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 2)
 plotshape(beJustHit, "Break Even 触发", style = shape.labelup, location = location.belowbar, color = color.new(color.fuchsia, 10), text = "BE", textcolor = color.white, size = size.tiny)
-alertcondition(beJustHit, "Break Even 触发", "到 BE 点了：把止损移到进场价")
+plotshape(tpJustHit, "止盈目标到达", style = shape.labeldown, location = location.abovebar, color = color.new(color.green, 10), text = "TP", textcolor = color.white, size = size.tiny)
+// —— 警报：交易所不能提前挂单的话，用这些警报提醒你手动去做 ——
+alertcondition(entryJustHit, "① 买点触发（进场）", "价格到买点了：进场 + 挂好止损和止盈")
+alertcondition(beJustHit,    "② Break Even 触发", "到 BE 点了：把止损移到进场价")
+alertcondition(tpJustHit,    "③ 止盈目标到达",     "到目标盈亏比了：手动关单套利")
 plotshape(sellClimax and not sellClimax[1], "卖出③ 高位大波动大量", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 10), text = "高位大量", textcolor = color.white, size = size.tiny)
 plotshape(sellVolDump and not sellVolDump[1], "卖出④ 连续阴烛后大量阴烛", style = shape.labeldown, location = location.abovebar, color = color.new(color.maroon, 10), text = "连阴大量", textcolor = color.white, size = size.tiny)
 
@@ -997,9 +1009,12 @@ if barstate.islast
         string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
              " · 止损 " + str.tostring(stopLevel, format.mintick) + " · 风险 " + str.tostring(riskPct, "#.##") + "%（buffer " + str.tostring(bufPct, "#.###") + "%）"
         r := f_cell(r, "C · 买点/止损", lvTxt, cN >= 1 ? color.teal : color.gray)
-        string tpTxt = na(tpRR) ? "—" : "1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(tpRR, format.mintick) +
+        // 已进场 → 显示这笔锁定的止盈目标；还没进场 → 显示按目前末段C算出来的预估目标
+        string tpTxt = not na(posTP) ?
+             "【已进场】1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(posTP, format.mintick) :
+             na(tpRR) ? "—" : "1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(tpRR, format.mintick) +
              " · 平均盈利×" + str.tostring(avgProfitMult, "#.#") + " → " + str.tostring(tpAvg, format.mintick)
-        r := f_cell(r, "止盈目标", tpTxt, na(tpRR) ? color.gray : color.teal)
+        r := f_cell(r, "止盈目标", tpTxt, not na(posTP) ? color.green : na(tpRR) ? color.gray : color.teal)
         string beTxt = not enableBE ? "已关闭" : na(posEntry) ? "未进场" :
              posBEHit ? "✅ 已触发 → 止损已移到进场价 " + str.tostring(posEntry, format.mintick) :
              "⏳ 等 1:" + str.tostring(beRatio, "#.#") + " → " + str.tostring(posBE, format.mintick) +
