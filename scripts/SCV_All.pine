@@ -15,8 +15,8 @@
 //    阴烛/变盘线)。做多（多头排列）：
 //    每段 C = 摆动高点 → 下一个摆动低点，深度=(高-低)/高；C1 动到 50 均线；
 //    波段缩小·底部抬高；结构 = 2~6 段；买点 = 末段 ≤ 10%；Base = 突破 C1 高点。
-//    做空镜像。C1 切 3 等份：靠突破位 1/3 = Pivot Area，中间 = Cheap，
-//    最远 1/3 = Low Cheap。参考：Base2 C1 −26.97%→C2 −24.41%→C3 −9.21%。
+//    做空镜像。C1 切 3 等份：靠突破位 1/3 = Pivot Area，中间 = Cheat，
+//    最远 1/3 = Low Cheat。参考：Base2 C1 −26.97%→C2 −24.41%→C3 −9.21%。
 //    加分（满分10）：收缩合理(每段≤前段一半+1%) +3 · C1 在 20-35% +3 ·
 //    Base 在 1或2 +2 · 突破区 = Pivot Area(末段收缩的高点/低点在内) +2
 //    Base 计数：从 Stage 2 开始数（做空从 Stage 4）；跌穿前一个 Base 低点
@@ -641,7 +641,7 @@ if score1OK
 bool score2OK = cN >= 1 and c1Depth >= c1Min and c1Depth <= c1Max
 bool score3OK = activeMode != 0 and baseCount + 1 <= 2
 
-// C1 切 3 等份：做多 顶部=Pivot Area 中间=Cheap 底部=Low Cheap（做空镜像）
+// C1 切 3 等份：做多 顶部=Pivot Area 中间=Cheat 底部=Low Cheat（做空镜像）
 float zThird = (c1A - c1B) / 3
 float z1 = c1A - zThird
 float z2 = c1A - 2 * zThird
@@ -793,12 +793,12 @@ plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style =
 
 // C1 突破位 + 三等份区域
 pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
-pZ1  = plot(showZones ? z1 : na, "Pivot/Cheap 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
-pZ2  = plot(showZones ? z2 : na, "Cheap/Low Cheap 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pZ1  = plot(showZones ? z1 : na, "Pivot/Cheat 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
+pZ2  = plot(showZones ? z2 : na, "Cheat/Low Cheat 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 pBot = plot(showZones ? c1B : na, "C1 收缩终点",         color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 fill(pBrk, pZ1, color = showZones ? color.new(color.green,  82) : na, title = "Pivot Area")
-fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "Cheap")
-fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheap")
+fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "Cheat")
+fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheat")
 
 // 买点区域背景 & Base 突破三角
 bgcolor(buyZone ? color.new(isLong ? color.green : color.red, 85) : na, title = "买点区域背景")
@@ -933,10 +933,19 @@ if barstate.islast
         string buyTxt  = cN >= 2 ? (buyZone ? "✅ 末段 " + str.tostring(lastDepth, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%" :
              "未到（末段 " + str.tostring(lastDepth, "#.##") + "%）") : "结构未成立（需 ≥2 段）"
         string zoneTxt = cN >= 1 ? (isLong ?
-             (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheap（中间 1/3）" : "Low Cheap（底部 1/3）") :
-             (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheap（中间 1/3）" : "Low Cheap（顶部 1/3）")) : "—"
+             (close >= z1 ? "Pivot Area（顶部 1/3）" : close >= z2 ? "Cheat（中间 1/3）" : "Low Cheat（底部 1/3）") :
+             (close <= z1 ? "Pivot Area（底部 1/3）" : close <= z2 ? "Cheat（中间 1/3）" : "Low Cheat（顶部 1/3）")) : "—"
         color zoneCol = cN >= 1 ? (isLong ? (close >= z1 ? color.green : close >= z2 ? color.orange : color.blue) :
              (close <= z1 ? color.green : close <= z2 ? color.orange : color.blue)) : color.gray
+        // 突破区域 = 末段C的高点（＝挂单位）落在 C1 三等份的哪一份，附上确定性含义
+        string brkZoneTxt = "—"
+        color  brkZoneCol = color.gray
+        if cN >= 2
+            bool inPivot = isLong ? lastStart >= z1 : lastStart <= z1
+            bool inCheat = not inPivot and (isLong ? lastStart >= z2 : lastStart <= z2)
+            brkZoneTxt := inPivot ? "Pivot Area → 确定性最高" :
+                 inCheat ? "Cheat Area → 确定性 + 成本优势" : "Low Cheat → 只有成本优势"
+            brkZoneCol := inPivot ? color.green : inCheat ? color.orange : color.blue
         string cScoreTxt = "收缩合理" + (score1OK ? "✔" : "✘") + " C1区间" + (score2OK ? "✔" : "✘") +
              " Base≤2" + (score3OK ? "✔" : "✘") + " Pivot" + (score4OK ? "✔" : "✘") +
              " = " + str.tostring(cScore) + "/10" + (c1Reach200 ? "  ⚠️C1到200均线 扣-" + str.tostring(c1Pen200) : "")
@@ -956,7 +965,8 @@ if barstate.islast
         if sellVolDump
             sellTxt := "⚠️ 连续" + str.tostring(consecDn) + "阴烛+大量阴烛 → 出"
         r := f_cell(r, "卖出信号", sellTxt, sellClimax or sellVolDump ? color.red : rideMode ? color.teal : color.gray)
-        r := f_cell(r, "C · 价格位置", zoneTxt, zoneCol)
+        r := f_cell(r, "C · 突破区域", brkZoneTxt, brkZoneCol)
+        r := f_cell(r, "C · 现价位置", zoneTxt, zoneCol)
         r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
         r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)
 
