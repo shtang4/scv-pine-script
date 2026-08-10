@@ -51,22 +51,16 @@ bool isLong = mode == 1
 bool isUp = close > open   // 阳烛
 bool isDn = close < open   // 阴烛
 
-// 回看期内：阳烛/阴烛的 总量、根数、平均量
-float sumUpVol = math.sum(isUp ? volume : 0, volLookback)
-float sumDnVol = math.sum(isDn ? volume : 0, volLookback)
-int   cntUp    = int(math.sum(isUp ? 1 : 0, volLookback))
-int   cntDn    = int(math.sum(isDn ? 1 : 0, volLookback))
-float avgUpVol = cntUp > 0 ? sumUpVol / cntUp : 0
-float avgDnVol = cntDn > 0 ? sumDnVol / cntDn : 0
-
-// —— 结构量能 ——
-// 做多：阳烛平均量 > 阴烛平均量 × 倍数（阴烛量小，阳烛量大）
-// 做空：阴烛平均量 > 阳烛平均量 × 倍数（阳烛量小，阴烛量大）
-bool structVolOK = mode != 0 and (isLong ? avgUpVol > avgDnVol * volRatio : avgDnVol > avgUpVol * volRatio)
-
 // —— 突破量能（当根K线） ——
 float volMA  = ta.sma(volume, volMALen)
 bool  bigVol = volume > volMA * breakoutMult
+
+// —— 条件① 阳烛量大 ——
+// 只看「超过 50 交易量均线（橙线）」的蜡烛，橙线以下的一概忽略不计
+float bigUpVol = math.sum(isUp and volume > volMA ? volume : 0, volLookback)
+float bigDnVol = math.sum(isDn and volume > volMA ? volume : 0, volLookback)
+bool structVolOK = mode != 0 and (isLong ? bigUpVol > bigDnVol * volRatio : bigDnVol > bigUpVol * volRatio)
+
 bool  breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)   // 做多要放量阳烛，做空要放量阴烛
 
 // —— 流动性：日均交易金额 ——
@@ -109,8 +103,9 @@ f_cell(int row, string k, string v, color c) =>
 if barstate.islast
     string modeTxt   = (mode == 1 ? "多头排列 → 做多量能" : mode == -1 ? "空头排列 → 做空量能" : "无排列 → 暂停") + "（" + timeframe.period + "）"
     string structTxt = mode == 0 ? "—" : (structVolOK ? "✔ " : "✘ ") +
-         (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? avgUpVol : avgDnVol, format.volume) +
-         " vs " + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? avgDnVol : avgUpVol, format.volume)
+         "放量" + (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? bigUpVol : bigDnVol, format.volume) +
+         " vs 放量" + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? bigDnVol : bigUpVol, format.volume) +
+         "（只算量>MA" + str.tostring(volMALen) + "）"
     string brkTxt    = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
          "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
     string liqTxt    = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
@@ -120,7 +115,7 @@ if barstate.islast
     string sumTxt = mode == 0 ? "暂停侦测" : str.tostring(okCount) + "/3" + (breakoutVolOK ? " + 突破放量 ✔" : "（突破日再看放量）")
 
     f_cell(0, "排列 / 方向", modeTxt, mode == 1 ? color.green : mode == -1 ? color.red : color.gray)
-    f_cell(1, "结构量能",    structTxt, structVolOK ? color.green : color.gray)
+    f_cell(1, "阳烛量大",    structTxt, structVolOK ? color.green : color.gray)
     f_cell(2, "突破量能",    brkTxt, breakoutVolOK ? color.green : color.gray)
     f_cell(3, "日均交易金额", liqTxt, liqOK ? color.green : color.red)
     f_cell(4, "24小时交易金额", dayLiqTxt, dayLiqOK ? color.green : color.red)

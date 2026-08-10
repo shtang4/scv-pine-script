@@ -215,9 +215,11 @@ float volMA    = ta.sma(volume, volMALen)
 bool upVolDominant = avgUpVol > avgDnVol * volRatio   // 阳烛量放大
 bool dnVolDominant = avgDnVol > avgUpVol * volRatio   // 阴烛量放大
 bool lowVolume     = volume < volMA   // 交易量低迷 = 量在 50 交易量均线之下
-// 烛数加分只算「放量」的蜡烛：量要超过 交易量均线(MA50) 才算数（量太小的当杂讯不计）
+// V 只看「超过 50 交易量均线（橙线）」的蜡烛，橙线以下的一概忽略不计
 float cumUpC = ta.cum(isUp and volume > volMA ? 1 : 0)   // 放量阳烛累计数（用于从 C1 起算烛数）
 float cumDnC = ta.cum(isDn and volume > volMA ? 1 : 0)   // 放量阴烛累计数
+float cumUpV = ta.cum(isUp and volume > volMA ? volume : 0)  // 放量阳烛累计「量」
+float cumDnV = ta.cum(isDn and volume > volMA ? volume : 0)  // 放量阴烛累计「量」
 // —— Stage 1 成立的四个条件（全部在天图上看 150 均线） ——
 //   ① 150 均线趋平  ② 价格在 150 均线上面  ③ 交易量低迷（量 < 50 交易量均线）  ④ 横盘 ≥ 半年
 stage1Confirmed = stage == 1 and trendFlat and priceAbove150 and stageLowVol and sidewaysDur >= sidewaysDays
@@ -345,12 +347,16 @@ var bool  armed       = false // 数蜡烛模式：本段是否已出现连续3�
 var int   anchorBar   = na
 var float anchorCumUp = na    // 锚点那根的阳烛累计数（快照，避免动态回看）
 var float anchorCumDn = na    // 锚点那根的阴烛累计数
+var float anchorCumUpV = na   // 锚点那根的放量阳烛累计量（快照）
+var float anchorCumDnV = na   // 锚点那根的放量阴烛累计量
 var float swingEnd    = na    // 收缩终点 = 起点以来的反向真实极值（做多=最低价，做空=最高价）
 var int   swingEndBar = na
 var float swingEndMA  = na    // 收缩终点那根的 50 均线值（快照，判断动到均线用）
 var bool  swingEndAlign = false  // 收缩终点那根是否为对应排列（C1 要求低点在排列内）
 var float c1CumUp     = na    // C1 起点的阳烛累计数（烛数加分从这里算起）
 var float c1CumDn     = na    // C1 起点的阴烛累计数
+var float c1CumUpV    = na    // C1 起点的放量阳烛累计量（阳烛量大从这里算起）
+var float c1CumDnV    = na    // C1 起点的放量阴烛累计量
 var int   baseCount   = 0
 var float lastBaseEnd = na
 var string lastBaseTxt = "—"
@@ -374,6 +380,8 @@ if mode != 0 and mode != activeMode
     anchorBar   := mode == 1 ? seedHiBar : seedLoBar
     anchorCumUp := cumUpC
     anchorCumDn := cumDnC
+    anchorCumUpV := cumUpV
+    anchorCumDnV := cumDnV
     swingEnd    := na
 
 bool isLong  = activeMode == 1
@@ -401,6 +409,8 @@ if activeMode != 0
             anchorBar   := bar_index
             anchorCumUp := cumUpC
             anchorCumDn := cumDnC
+            anchorCumUpV := cumUpV
+            anchorCumDnV := cumDnV
             armed       := false
             runCount    := 0     // 新极值 = 新的一段，连续计数从这根重新算起
             swingEnd    := low
@@ -418,6 +428,8 @@ if activeMode != 0
             anchorBar   := bar_index
             anchorCumUp := cumUpC
             anchorCumDn := cumDnC
+            anchorCumUpV := cumUpV
+            anchorCumDnV := cumDnV
             armed       := false
             runCount    := 0     // 新极值 = 新的一段，连续计数从这根重新算起
             swingEnd    := high
@@ -501,6 +513,8 @@ if activeMode != 0
                     f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                     c1CumUp := anchorCumUp   // 记住 C1 起点的累计烛数，烛数加分从这里算起
                     c1CumDn := anchorCumDn
+                    c1CumUpV := anchorCumUpV
+                    c1CumDnV := anchorCumDnV
                     changed := true
             else
                 float lastHigh = array.get(cStart, array.size(cDepth) - 1)
@@ -518,6 +532,8 @@ if activeMode != 0
                         f_push(legStart, legStartBar, legEnd, legEndBar, depth, touchedMA)
                         c1CumUp := anchorCumUp
                         c1CumDn := anchorCumDn
+                        c1CumUpV := anchorCumUpV
+                        c1CumDnV := anchorCumDnV
                     changed := true
                 else if raisedLow
                     // ① 底部抬高 + 波段缩小 → 新的一段（最多 6 段）。优先于高点规则：
@@ -624,7 +640,19 @@ int cScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + (sco
 bool buyZone = cN >= 2 and lastDepth <= buyPct
 
 // ============================ V · Volume ===================================
-bool structVolOK = mode != 0 and (isLong ? upVolDominant : dnVolDominant)
+// —— 条件① 阳烛量大 ——
+// 只看「超过 50 交易量均线（橙线）」的蜡烛，橙线以下的一概忽略不计。
+// 统计区间：已经有 C1 → 从 C1 起点算到现在（C1~C6 整个 base 期间）；
+//           还没有 C1 → 退回用固定回看期，面板才不会空着。
+float bigUpVol = 0.0
+float bigDnVol = 0.0
+if cN >= 1 and not na(c1CumUpV)
+    bigUpVol := cumUpV - c1CumUpV
+    bigDnVol := cumDnV - c1CumDnV
+else
+    bigUpVol := math.sum(isUp and volume > volMA ? volume : 0, volLookback)
+    bigDnVol := math.sum(isDn and volume > volMA ? volume : 0, volLookback)
+bool structVolOK = mode != 0 and (isLong ? bigUpVol > bigDnVol * volRatio : bigDnVol > bigUpVol * volRatio)
 bool bigVol = volume > volMA * breakoutMult
 bool breakoutVolOK = mode != 0 and bigVol and (isLong ? isUp : isDn)
 // 日均交易金额：不管图表周期，都强制取「天」的 收盘价×成交量 再平均
@@ -909,14 +937,15 @@ if barstate.islast
     // —— V · Volume ——
     if showV
         string structTxt = mode == 0 ? "—" : (structVolOK ? "✔ " : "✘ ") +
-             (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? avgUpVol : avgDnVol, format.volume) +
-             " vs " + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? avgDnVol : avgUpVol, format.volume)
+             "放量" + (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? bigUpVol : bigDnVol, format.volume) +
+             " vs 放量" + (isLong ? "阴烛量 " : "阳烛量 ") + str.tostring(isLong ? bigDnVol : bigUpVol, format.volume) +
+             (cN >= 1 ? "（C1起算·只算量>MA50）" : "（回看" + str.tostring(volLookback) + "根·只算量>MA50）")
         string brkTxt = mode == 0 ? "—" : breakoutVolOK ? "✔ 本根 = 放量" + (isLong ? "阳烛" : "阴烛") :
              "✘ 未出现（需 " + (isLong ? "阳烛" : "阴烛") + " 且量 > 均量×" + str.tostring(breakoutMult, "#.#") + "）"
         string liqTxt = (liqOK ? "✔ " : "✘ ") + str.tostring(avgDollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
         string dayLiqTxt = (dayLiqOK ? "✔ " : "✘ ") + str.tostring(h24DollarVol / 1000000, "#.##") + "M（需 > " + str.tostring(minDollarM, "#.#") + "M）"
         string vBonusTxt = mode == 0 or cN < 1 ? "结构未成立" : (vBonusOK ? "✔ " : "✘ ") + "放量阳烛 " + str.tostring(cntUpBase) + " vs 放量阴烛 " + str.tostring(cntDnBase) + " 根（C1起算·量>MA50）"
-        r := f_cell(r, "V · 结构量能", structTxt, structVolOK ? color.green : color.gray)
+        r := f_cell(r, "V · 阳烛量大", structTxt, structVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 突破量能", brkTxt, breakoutVolOK ? color.green : color.gray)
         r := f_cell(r, "V · 日均交易金额", liqTxt, liqOK ? color.green : color.red)
         r := f_cell(r, "V · 24小时交易金额", dayLiqTxt, dayLiqOK ? color.green : color.red)
