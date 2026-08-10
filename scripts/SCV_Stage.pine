@@ -23,7 +23,8 @@ stageTF      = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = 
 newTF        = input.timeframe("240", "新图 Stage 周期", group = grpStage, tooltip = "天图还没有 150 均线（新币/新股）时，Stage 自动改看这个周期，默认 4 小时")
 slopeLen     = input.int(20,    "150均线斜率回看K线数", minval = 2,   group = grpStage, tooltip = "用 150 均线现在的值和 N 根K线前的值比较，判断趋上/趋平/趋下")
 flatPct      = input.float(1.0, "趋平阈值 (%)",         minval = 0.1, step = 0.1, group = grpStage, tooltip = "150均线在回看期内变动小于 ±此百分比 = 趋平")
-sidewaysBars = input.int(126,   "Stage 1 横盘最少K线数", minval = 1,  group = grpStage, tooltip = "半年 ≈ 126 个交易日（天图）")
+sidewaysDays = input.int(180,   "Stage 1 横盘最少天数",   minval = 1,  group = grpStage, tooltip = "横盘至少半年 = 180 天。用「日历天数」算（跟 TradingView 量尺的 286d 一样），股票/币都通用")
+sidewaysTol  = input.float(3.0, "Stage 1 横盘容差 (%)",   minval = 0,  step = 0.5, group = grpStage, tooltip = "从明显高点算起，价格没有超过该高点×(1+容差) = 还在横盘（涨不上去、突破不上）")
 alignPen1    = input.int(1,     "排列小扣分：50在150下",   minval = 0,  group = grpStage, tooltip = "多头排列(150在200上)里，50 在 150 下但仍在 200 上 = 小扣分（做空镜像：50在150上但仍在200下）")
 alignPen2    = input.int(2,     "排列大扣分：50在150&200下", minval = 0,  group = grpStage, tooltip = "50 同时在 150 和 200 下 = 大扣分（比只在150下更弱）")
 cutDrawdown   = input.float(35.0, "Stage3 清仓跌幅 (%)",     minval = 1, step = 1, group = grpStage, tooltip = "从周期高点回落此% = 清仓信号。股票/加密 ≈35，其他资产 ≈10")
@@ -84,25 +85,39 @@ f_stageCalc() =>
     var int fb = 0                      // 横盘（趋平）持续根数，以该周期计
     fb := ft ? fb + 1 : 0
     bool cdn = ta.crossunder(close, ma) // Stage 3 跌穿 150 均线
-    [st, sl, fb, cdn, ma]                // ma 用来判断该周期有没有 150 均线
+    // —— Stage 1 的其余条件（全部在该周期＝天图上算） ——
+    bool abv = close > ma               // 价格在 150 均线「上面」
+    bool lv  = volume < ta.sma(volume, volLen)     // 交易量低迷：量在 50 交易量均线之下
+    // 横盘时长：以「明显高点」当区间顶，价格没有明显突破它（涨不上去）就一直算横盘。
+    // 用日历天数计（跟 TradingView 量尺的 286d 一样），股票 5 根/周、币 7 根/周都通用。
+    var float rTop   = na
+    var int   rStart = na
+    if na(rTop) or high > rTop * (1 + sidewaysTol / 100)
+        rTop   := high                  // 明显突破前高 → 区间重设，横盘重新算起
+        rStart := time
+    int swD = na(rStart) ? 0 : int((time - rStart) / 86400000)
+    [st, sl, fb, cdn, ma, abv, lv, swD]  // ma 用来判断该周期有没有 150 均线
 
 // 新图自动切换：天图还没有 150 均线（K线不够）→ Stage 改看 4 小时
-[stgD, slpD, fbD, cdnD, maD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
-[stgN, slpN, fbN, cdnN, maN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
+[stgD, slpD, fbD, cdnD, maD, abvD, lvD, swDD] = request.security(syminfo.tickerid, stageTF, f_stageCalc())
+[stgN, slpN, fbN, cdnN, maN, abvN, lvN, swDN] = request.security(syminfo.tickerid, newTF,   f_stageCalc())
 bool   isNewChart  = na(maD)                       // 天图无 150 均线 = 新图
 string stageTFUsed = isNewChart ? newTF : stageTF  // Stage 实际使用的周期
 int    stage       = isNewChart ? stgN : stgD
 float  slope150    = isNewChart ? slpN : slpD
 int    flatBars    = isNewChart ? fbN  : fbD
 bool   crossDn150  = isNewChart ? cdnN : cdnD
+bool   priceAbove150 = isNewChart ? abvN : abvD    // 价格在 150 均线上面
+bool   stageLowVol   = isNewChart ? lvN  : lvD     // 交易量低迷（量 < 50 交易量均线）
+int    sidewaysDur   = isNewChart ? swDN : swDD    // 横盘天数（日历天）
 trendUp   = slope150 >  flatPct        // 趋上
 trendDown = slope150 < -flatPct        // 趋下
 trendFlat = not trendUp and not trendDown  // 趋平
 
 // ============================ 交易量分析 ===================================
 volMA = ta.sma(volume, volLen)
-// 交易量低迷：当前量在均量之下，且均量没有在放大（Stage 1 特征）
-lowVolume = volume < volMA and volMA <= volMA[volLookback]
+// 交易量低迷：量在 50 交易量均线之下（Stage 1 特征）
+lowVolume = volume < volMA
 // 回看期内 阳烛总量 vs 阴烛总量
 upVolSum = math.sum(close >= open ? volume : 0, volLookback)
 dnVolSum = math.sum(close <  open ? volume : 0, volLookback)
@@ -110,8 +125,9 @@ upVolDominant = upVolSum > dnVolSum * volRatio   // 阳烛量放大（Stage 2 �
 dnVolDominant = dnVolSum > upVolSum * volRatio   // 阴烛量放大（Stage 3/4 特征）
 
 // ========================= Stage 1 / 3 附加条件 ============================
-// Stage 1 横盘计时（flatBars 已在 stageTF 周期上算好，要求至少半年）
-stage1Confirmed = stage == 1 and flatBars >= sidewaysBars and lowVolume
+// Stage 1 成立的四个条件（全部在天图上看 150 均线）：
+//   ① 150 均线趋平  ② 价格在 150 均线上面  ③ 交易量低迷（量 < 50 交易量均线）  ④ 横盘 ≥ 半年
+stage1Confirmed = stage == 1 and trendFlat and priceAbove150 and stageLowVol and sidewaysDur >= sidewaysDays
 
 // Stage 3 警讯：跌穿 150 均线
 stage3BreakMA = stage == 3 and crossDn150
@@ -201,13 +217,17 @@ plotshape(cutSignal and not cutSignal[1], "清仓信号", style = shape.triangle
 plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
 
 // ============================ 信息面板 =====================================
-var table panel = table.new(panelPos, 2, 10, border_width = 1, border_color = color.new(color.gray, 60))
+var table panel = table.new(panelPos, 2, 11, border_width = 1, border_color = color.new(color.gray, 60))
 f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
 
 if barstate.islast
-    stageTxt = "Stage " + str.tostring(stage) + (stage == 1 ? stage1Confirmed ? "（横盘已满半年）" : "（横盘未满半年）" : "")
+    stageTxt = "Stage " + str.tostring(stage) + (stage == 1 ? stage1Confirmed ? "（四项条件都成立）" : "（条件未齐）" : "")
+    // Stage 1 的四个条件逐项显示：趋平 / 价在线上 / 量低迷 / 横盘≥半年
+    string s1Txt = (trendFlat ? "✔" : "✘") + "趋平 " + (priceAbove150 ? "✔" : "✘") + "价在线上 " +
+         (stageLowVol ? "✔" : "✘") + "量低迷 " +
+         (sidewaysDur >= sidewaysDays ? "✔" : "✘") + "横盘" + str.tostring(sidewaysDur) + "天/" + str.tostring(sidewaysDays)
     if stage == 3 or stage == 4
         stageTxt := stageTxt + " · 距高 -" + str.tostring(drawdownPct, "#.#") + "%" + (cutSignal ? " ⚠️清仓" : "")
     if stage3Choppy
@@ -237,12 +257,13 @@ if barstate.islast
     chartTxt = isNewChart ? "新图：看" + newTF + "（天图无150均线）" : "旧图：看" + stageTF
 
     f_cell(0, "Stage",      stageTxt, cutSignal ? color.red : stageColor)
-    f_cell(1, "150均线",    maTxt + "  (" + stageTFUsed + " " + str.tostring(slope150, "#.##") + "%)", trendUp ? color.green : trendDown ? color.red : color.gray)
-    f_cell(2, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
-    f_cell(3, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)
-    f_cell(4, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
-    f_cell(5, "大小周期",   mtfTxt + "（" + bigTF + " vs " + timeframe.period + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
-    f_cell(6, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
-    f_cell(7, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
-    f_cell(8, "可否交易",   tradeTxt, cutSignal ? color.red : not tradeOK ? color.gray : stage == 2 ? color.green : color.red)
-    f_cell(9, "图表提示",   chartTxt, isNewChart ? color.orange : color.gray)
+    f_cell(1, "Stage 1 条件", (stage1Confirmed ? "✅ 成立　" : "⏳ 未成立　") + s1Txt, stage1Confirmed ? color.green : color.gray)
+    f_cell(2, "150均线",    maTxt + "  (" + stageTFUsed + " " + str.tostring(slope150, "#.##") + "%)" + (priceAbove150 ? " · 价在线上" : " · 价在线下"), trendUp ? color.green : trendDown ? color.red : color.gray)
+    f_cell(3, "交易量",     volTxt, upVolDominant ? color.green : dnVolDominant ? color.red : color.gray)
+    f_cell(4, "均线排列",   stackTxt, bullStack ? color.green : bearStack ? color.red : alignPenActive ? color.orange : color.gray)
+    f_cell(5, "RS 相对强度", rsTxt, rsNearHigh ? color.green : rsNearLow ? color.red : color.gray)
+    f_cell(6, "大小周期",   mtfTxt + "（" + bigTF + " vs " + timeframe.period + "）", sameTrendUp or sameTrendDown ? color.teal : color.gray)
+    f_cell(7, "做多加分",   str.tostring(longScore) + " / 6", longScore >= 4 ? color.green : color.gray)
+    f_cell(8, "做空加分",   str.tostring(shortScore) + " / 6", shortScore >= 4 ? color.red : color.gray)
+    f_cell(9, "可否交易",   tradeTxt, cutSignal ? color.red : not tradeOK ? color.gray : stage == 2 ? color.green : color.red)
+    f_cell(10, "图表提示",  chartTxt, isNewChart ? color.orange : color.gray)
