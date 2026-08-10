@@ -22,10 +22,11 @@ len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
 
 grpVol = "② 量能"
-volLookback  = input.int(20,     "结构量能回看K线数",   minval = 1, group = grpVol, tooltip = "在这段期间比较 阳烛平均量 vs 阴烛平均量")
-volRatio     = input.float(1.2,  "量大倍数",            minval = 1.0, step = 0.1, group = grpVol, tooltip = "阳烛平均量 > 阴烛平均量 × 此倍数 = 阳烛量大（做空反过来）")
+volLookback  = input.int(20,     "量能回看K线数",       minval = 1, group = grpVol, tooltip = "在这段期间比较 放量阳烛的量 vs 放量阴烛的量")
+volRatio     = input.float(1.2,  "量大倍数",            minval = 1.0, step = 0.1, group = grpVol, tooltip = "放量阳烛总量 > 放量阴烛总量 × 此倍数 = 阳烛量大（做空反过来）")
 volMALen     = input.int(50,     "交易量均线长度",      minval = 1, group = grpVol)
 breakoutMult = input.float(1.5,  "突破放量倍数",        minval = 1.0, step = 0.1, group = grpVol, tooltip = "突破量能：当根量 > 交易量均线(MA50)×此倍数 = 放量")
+dojiPct      = input.float(50.0, "变盘线：实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpVol, tooltip = "蜡烛分三种：变盘线 = 上下影线合计比实体长（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色。变盘线不算进阳烛/阴烛的统计")
 
 grpLiq = "③ 流动性"
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpLiq, tooltip = "日均 收盘价×成交量 要超过此金额（单位=该股计价货币，美股即美元）")
@@ -48,8 +49,13 @@ int mode = bullStack ? 1 : bearStack ? -1 : 0
 bool isLong = mode == 1
 
 // ========================== 阴阳烛量能统计 ==================================
-bool isUp = close > open   // 阳烛
-bool isDn = close < open   // 阴烛
+// 蜡烛分三种：身体 = |收 − 开|；影线合计 = 整根范围 − 身体
+//   变盘线 = 影线合计 > 身体（不管阴阳）· 阳烛/阴烛 = 身体大过影线合计再看颜色
+float candBody = math.abs(close - open)
+float candRng  = high - low
+bool isChg = candRng == 0 or candBody < candRng * dojiPct / 100   // 变盘线
+bool isUp  = not isChg and close > open   // 阳烛
+bool isDn  = not isChg and close < open   // 阴烛
 
 // —— 突破量能（当根K线） ——
 float volMA  = ta.sma(volume, volMALen)
@@ -80,7 +86,7 @@ int cntDnBig = int(math.sum(isDn and volume > volMA ? 1 : 0, volLookback))
 bool bonusOK = mode != 0 and (isLong ? cntUpBig > cntDnBig : cntDnBig > cntUpBig)
 
 // ============================ 副图显示 =====================================
-// 成交量柱：阳烛绿、阴烛红、放量加深、十字星灰
+// 成交量柱：阳烛绿、阴烛红、放量加深、变盘线灰（影线大过实体，两边都不计）
 color volCol = isUp ? (bigVol ? color.new(color.green, 0) : color.new(color.green, 55)) :
      isDn ? (bigVol ? color.new(color.red, 0) : color.new(color.red, 55)) : color.new(color.gray, 40)
 plot(volume, "成交量", color = volCol, style = plot.style_columns)

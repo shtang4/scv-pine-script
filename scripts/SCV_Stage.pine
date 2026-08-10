@@ -36,6 +36,7 @@ grpVol = "③ 交易量"
 volLen      = input.int(50,      "交易量均线长度",      minval = 1, group = grpVol)
 volLookback = input.int(20,      "阴/阳烛量比较回看期", minval = 1, group = grpVol)
 volRatio    = input.float(1.2,   "量放大倍数",          minval = 1.0, step = 0.1, group = grpVol, tooltip = "阳烛总量 > 阴烛总量 × 此倍数 = 阳烛量放大（反之为阴烛量放大）")
+dojiPct     = input.float(50.0,  "变盘线：实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpVol, tooltip = "蜡烛分三种：变盘线 = 上下影线合计比实体长（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色。变盘线不算进阳烛/阴烛的统计")
 
 grpRS = "④ RS Rating（相对强度）"
 rsSymbol   = input.symbol("SP:SPX", "对比指数",           group = grpRS)
@@ -92,8 +93,10 @@ f_stageCalc() =>
     bool abv = close > ma               // 价格在 150 均线「上面」
     bool lv  = volume < vma             // Stage1 交易量低迷：量在 50 交易量均线之下
     // Stage2 阳烛量放大 / Stage3 阴烛量放大：该色蜡烛的量超过 50 交易量均线，且比反向的放量烛多
-    int  upB = int(math.sum(close > open and volume > vma ? 1 : 0, volLookback))
-    int  dnB = int(math.sum(close < open and volume > vma ? 1 : 0, volLookback))
+    // 阳烛/阴烛都要「实体大过影线合计」才算数（影线大过实体的是变盘线，两边都不计）
+    bool sChg = high - low == 0 or math.abs(close - open) < (high - low) * dojiPct / 100
+    int  upB = int(math.sum(not sChg and close > open and volume > vma ? 1 : 0, volLookback))
+    int  dnB = int(math.sum(not sChg and close < open and volume > vma ? 1 : 0, volLookback))
     bool bva = upB > dnB                // 阳烛量放大
     bool bea = dnB > upB                // 阴烛量放大
     // Stage2 强度：价格离 150 均线多远（乖离%），越远强度越大、持续性越强
@@ -131,9 +134,15 @@ trendFlat = not trendUp and not trendDown  // 趋平
 volMA = ta.sma(volume, volLen)
 // 交易量低迷：量在 50 交易量均线之下（Stage 1 特征）
 lowVolume = volume < volMA
-// 回看期内 阳烛总量 vs 阴烛总量
-upVolSum = math.sum(close >= open ? volume : 0, volLookback)
-dnVolSum = math.sum(close <  open ? volume : 0, volLookback)
+// 蜡烛分三种：变盘线 = 影线合计 > 实体（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色
+candBody = math.abs(close - open)
+candRng  = high - low
+isChg = candRng == 0 or candBody < candRng * dojiPct / 100   // 变盘线（两边都不计）
+isUpC = not isChg and close > open   // 阳烛
+isDnC = not isChg and close < open   // 阴烛
+// 回看期内 阳烛总量 vs 阴烛总量（变盘线不计）
+upVolSum = math.sum(isUpC ? volume : 0, volLookback)
+dnVolSum = math.sum(isDnC ? volume : 0, volLookback)
 upVolDominant = upVolSum > dnVolSum * volRatio   // 阳烛量放大（Stage 2 特征）
 dnVolDominant = dnVolSum > upVolSum * volRatio   // 阴烛量放大（Stage 3/4 特征）
 

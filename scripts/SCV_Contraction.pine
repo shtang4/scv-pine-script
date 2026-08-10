@@ -40,7 +40,7 @@ showMA = input.bool(true, "显示均线", group = grpMA)
 grpC = "② Contraction 侦测"
 cMethod        = input.string("摆动点", "Contraction 侦测方式", options = ["摆动点", "数蜡烛"], group = grpC, tooltip = "摆动点：用 swing high/low 切段（对应手动画法，建议）。数蜡烛：连续3根阴烛/变盘线触发（教材原始定义）")
 pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大 = 只抓大波段、段数少、确认更慢；越小 = 抓小波段、更灵敏但杂讯多。对不上你手画的就调这个")
-dojiPct        = input.float(50.0, "数蜡烛：变盘线 实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "变盘线 = 上下影线合计比实体长，不管阴阳。影线合计 = 范围 − 实体，所以「实体 < 范围的 50%」即可；调低会更严格")
+dojiPct        = input.float(50.0, "变盘线：实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "蜡烛分三种：变盘线 = 上下影线合计比实体长（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色。影线合计 = 范围 − 实体，所以「实体 < 范围的 50%」即为变盘线；调低会更严格")
 sealBars       = input.int(3,      "数蜡烛：低点确认K线数", minval = 1, group = grpC, tooltip = "只在「数蜡烛」模式用：回调低点连续这么多根没再被跌破 = 这段收缩结束")
 minLegPct      = input.float(1.5,  "最小波段深度 (%)",         minval = 0.1, step = 0.5, group = grpC, tooltip = "小于此深度的摆动当杂讯忽略。太高会漏掉后段小收缩（例如 3% 的 C2），太低会太碎")
 requireShrink  = input.bool(true, "结构必须波段缩小（每段比上一段浅）", group = grpC, tooltip = "教材：波段缩小 + 底部抬高。关掉的话只要低点抬高就算新的一段，横盘震荡会画出一堆忽大忽小的 C")
@@ -313,10 +313,13 @@ if activeMode != 0
     //    数蜡烛：段内出现连续3根阴烛/变盘线，且回调低点已 sealBars 根没被跌破
     //   变盘线(变) = 上下影线合计 > 实体（不管阴阳）；做多数 阴/变，做空数 阳/变
     //   连续3根出现在回调的开头/过程/结尾都算；第一根同时是最高和最低也成立
+    //   身体 = |收 − 开|；影线合计 = 整根范围 − 身体
     float cBody = math.abs(close - open)
     float cRng  = high - low
-    bool  isDoji = cRng == 0 or cBody < cRng * dojiPct / 100
-    bool  counterCandle = isLong ? (close < open or isDoji) : (close > open or isDoji)
+    bool  isChg = cRng == 0 or cBody < cRng * dojiPct / 100   // 变盘线（影线合计 > 身体）
+    bool  isUpC = not isChg and close > open                  // 阳烛
+    bool  isDnC = not isChg and close < open                  // 阴烛
+    bool  counterCandle = isLong ? (isDnC or isChg) : (isUpC or isChg)
     runCount := counterCandle ? runCount + 1 : 0
     if runCount >= 3
         armed := true
