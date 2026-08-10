@@ -774,8 +774,8 @@ float trailLevel = na(trailSwing) ? trailMA : (isLong ? math.max(trailMA, trailS
 
 plot(showSellLv and not na(tpRR) ? tpRR : na, "止盈（盈亏比目标）", color = color.new(color.yellow, 0), style = plot.style_linebr, linewidth = 2)
 plot(showSellLv and rideMode ? trailLevel : na, "移动止盈（50均线/前波段底−buffer）", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
-plotshape(sellClimax and not sellClimax[1], "卖出③ 高位大波动大量", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 10), text = "TP3", textcolor = color.white, size = size.tiny)
-plotshape(sellVolDump and not sellVolDump[1], "卖出④ 连续阴烛后大量阴烛", style = shape.labeldown, location = location.abovebar, color = color.new(color.maroon, 10), text = "TP4", textcolor = color.white, size = size.tiny)
+plotshape(sellClimax and not sellClimax[1], "卖出③ 高位大波动大量", style = shape.labeldown, location = location.abovebar, color = color.new(color.red, 10), text = "高位大量", textcolor = color.white, size = size.tiny)
+plotshape(sellVolDump and not sellVolDump[1], "卖出④ 连续阴烛后大量阴烛", style = shape.labeldown, location = location.abovebar, color = color.new(color.maroon, 10), text = "连阴大量", textcolor = color.white, size = size.tiny)
 
 // ============================ 图表显示 =====================================
 // Stage 背景 & 转换标签
