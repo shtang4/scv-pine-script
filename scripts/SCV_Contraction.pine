@@ -49,6 +49,7 @@ requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grp
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
 buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
 showBoxes      = input.bool(true,  "画出每段收缩框",           group = grpC)
+showBaseBox    = input.bool(true,  "Base 成立时框起整个 base", group = grpC, tooltip = "Base 两个条件都成立（C1高点被突破 + 至少2个C）时，用紫色方框把整个 base 框起来")
 seedBars       = input.int(50,     "C1 起点回看K线数",         minval = 5, group = grpC, tooltip = "排列刚形成时，C1 的起点(做多=高点/做空=低点)从最近这么多根里的极值算起，可早于排列形成")
 
 grpScore = "③ 加分项目"
@@ -475,6 +476,8 @@ int totalScore = (score1OK ? 3 : 0) + (score2OK ? 3 : 0) + (score3OK ? 2 : 0) + 
 bool buyZone = cN >= 2 and lastDepth <= buyPct
 
 // ====================== Base 突破（突破 C1 高点/低点） ======================
+// Base 成立要两个条件：① C1 的高点被突破（用蜡烛的「最高价」去比，不看收盘、不看阴阳）
+//                      ② 这个 base 里至少有 2 个 C（只有 C1 不算 base）
 if activeMode != 0 and array.size(cDepth) >= 1
     float baseLv = array.get(cStart, 0)
     if isLong ? high > baseLv : low < baseLv
@@ -484,6 +487,15 @@ if activeMode != 0 and array.size(cDepth) >= 1
             evtBuy   := lastD <= buyPct
             baseCount += 1
             lastBaseEnd := array.get(cEnd, 0)   // 这个 Base 的低点(做多)/高点(做空)，跌穿/升穿它 → 计数重置
+            // 把整个 base 框起来：从 C1 起点那根到突破这根，上=C1高点，下=各段最低点
+            if showBaseBox
+                float bTop = baseLv
+                float bBot = array.get(cEnd, 0)
+                for i = 1 to array.size(cDepth) - 1
+                    bBot := isLong ? math.min(bBot, array.get(cEnd, i)) : math.max(bBot, array.get(cEnd, i))
+                box.new(array.get(cStartBar, 0), math.max(bTop, bBot), bar_index, math.min(bTop, bBot),
+                     border_color = evtBuy ? color.new(color.purple, 0) : color.new(color.purple, 45),
+                     border_width = 2, bgcolor = color.new(color.purple, 93))
             string bTxt = (isLong ? "🚀 突破 Base #" : "🔻 跌破 Base #") + str.tostring(baseCount) +
                  (evtBuy ? "\n✅ 买点（末段 " + str.tostring(lastD, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%）" :
                            "\n⚠️ 末段 " + str.tostring(lastD, "#.##") + "% > " + str.tostring(buyPct, "#.#") + "%") +
