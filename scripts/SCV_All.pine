@@ -60,7 +60,7 @@ grpMTF = "④ 大小周期"
 bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）。小周期 = 你当前图表的周期，切换图表就跟着变")
 
 grpC = "⑤ Contraction"
-cMethod        = input.string("摆动点", "Contraction 侦测方式", options = ["摆动点", "数蜡烛"], group = grpC, tooltip = "摆动点：用 swing high/low 切段（对应手动画法，建议）。数蜡烛：连续3根阴烛/变盘线触发（教材原始定义）")
+cMethod        = input.string("数蜡烛", "Contraction 侦测方式", options = ["数蜡烛", "摆动点"], group = grpC, tooltip = "数蜡烛：明显高点到明显低点之间要有连续3根「阴烛/变盘线」的组合 —— 教材对 C 的定义，建议用这个。摆动点：改用 swing high/low 切段（比较宽松，适合肉眼对波段）")
 pivStrength    = input.int(5,      "摆动强度（左右各N根K线）", minval = 1, group = grpC, tooltip = "越大=只抓大波段、段数少、确认慢；越小=更灵敏但杂讯多。对不上手画的就调这个")
 dojiPct        = input.float(50.0, "变盘线：实体 < K线范围 (%)", minval = 1, maxval = 100, group = grpC, tooltip = "蜡烛分三种：变盘线 = 上下影线合计比实体长（不管阴阳）；阳烛/阴烛 = 实体大过影线合计再看颜色。影线合计 = 范围 − 实体，所以「实体 < 范围的 50%」即为变盘线；调低会更严格。此定义 S / C / V 全部共用")
 sealBars       = input.int(3,      "数蜡烛：低点确认K线数", minval = 1, group = grpC, tooltip = "只在「数蜡烛」模式用：回调低点连续这么多根没再被跌破 = 这段收缩结束")
