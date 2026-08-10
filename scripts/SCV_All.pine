@@ -98,6 +98,7 @@ fxMinute  = input.float(5.0,   "汇/金/指/期：分图 末段C% ×",   minval 
 showBuyLv = input.bool(true,   "画出买点 / 止损线", group = grpBuy)
 
 grpSell = "⑧ 卖出 Sell Trigger"
+exitMode      = input.string("主动：到目标就走", "套利方式", options = ["主动：到目标就走", "被动：跟着50均线拖"], group = grpSell, tooltip = "主动：进场就定好止盈价（1:2 等），到价就走。被动：不设止盈，止损跟着「50均线 − buffer」一路往上拖（只进不退），吃完整个趋势才出场")
 rrTarget      = input.float(2.0,  "主动①：盈亏比目标 1:X", minval = 0.5, step = 0.5, group = grpSell)
 avgProfitPct  = input.float(5.0,  "主动②：平均盈利 (%)",   minval = 0.1, step = 0.5, group = grpSell, tooltip = "你自己的平均单笔盈利，教材手写约 2~8%")
 avgProfitMult = input.float(2.5,  "主动②：达到平均盈利的 X 倍", minval = 1, step = 0.5, group = grpSell)
@@ -105,7 +106,6 @@ extPct        = input.float(15.0, "主动③：高位 = 离 50均线 (%)", minva
 atrMult       = input.float(1.2,  "主动③：大波动 = ATR > 均值 ×", minval = 1, step = 0.1, group = grpSell)
 sellVolMult   = input.float(1.5,  "主动③④：大交易量 = 量 > 均量 ×", minval = 1, step = 0.1, group = grpSell)
 consecDn      = input.int(3,      "主动④：连续阴烛根数",    minval = 2, group = grpSell)
-trailBuf      = input.float(1.0,  "被动：50均线/前波段底 下方 buffer (%)", minval = 0, step = 0.25, group = grpSell)
 showSellLv    = input.bool(true,  "画出止盈 / 移动止盈线", group = grpSell)
 enableBE      = input.bool(true,  "启用 Break Even（止损移到进场价）", group = grpSell, tooltip = "进场后，到达 BE 比例 或 50均线碰到进场价 → 止损自动移到进场价，之后回落就是不赚不赔出场")
 beOffset      = input.float(0.5,  "BE 比例 = 盈亏比目标 −", minval = 0.1, step = 0.5, group = grpSell, tooltip = "教材公式：目标 1:2 → BE 放 1:1.5；目标 1:1.5 → BE 放 1:1。所以 BE 比例 = 目标 − 0.5")
@@ -771,11 +771,16 @@ var int sellRun = 0
 sellRun := (isLong ? isDn : isUp) ? sellRun + 1 : 0
 bool sellVolDump = activeMode != 0 and (isLong ? isDn : isUp) and sellRun >= consecDn and volume > volMA * sellVolMult
 
-// 被动套利：Stage 2（做空 Stage 4）且 Base 还在 1~2 → 让利润跑，用移动止盈
-bool rideMode = activeMode != 0 and (isLong ? stage == 2 : stage == 4) and baseCount + 1 <= 2
-float trailMA    = isLong ? ma50 * (1 - trailBuf / 100) : ma50 * (1 + trailBuf / 100)
-float trailSwing = na(lastEnd) ? na : (isLong ? lastEnd * (1 - trailBuf / 100) : lastEnd * (1 + trailBuf / 100))
-float trailLevel = na(trailSwing) ? trailMA : (isLong ? math.max(trailMA, trailSwing) : math.min(trailMA, trailSwing))
+// ===================== 被动套利（跟着 50 均线拖） =========================
+// 进场后「不设止盈」，跟着整个趋势吃完整个波段：
+//   止损 = 50 均线 − buffer（buffer 跟买点用同一套：天图1% / 时图0.5% / 分图0.25%）
+//   50 均线往上爬 → 止损跟着往上移；50 均线回落 → 止损「不往下移」（只进不退）
+//   一直到价格跌破这条线才出场
+// 天图的话每天更新一次就够了。
+bool passiveMode = exitMode == "被动：跟着50均线拖"
+float trailRaw = isLong ? ma50 * (1 - bufPct / 100) : ma50 * (1 + bufPct / 100)
+// 建议用被动的时机：Stage 2（做空 Stage 4）且 Base 还在 1~2 = 主升段
+bool rideSuggest = activeMode != 0 and (isLong ? stage == 2 : stage == 4) and baseCount + 1 <= 2
 
 // ===================== Break Even（止损移到进场价） =======================
 // 进场后，只要下面任一情况发生，就把止损往上移到「进场价」，之后回落就是不赚不赔出场：
@@ -809,8 +814,11 @@ if activeMode != 0
             if not posBEHit and (beByPrice or beByMA)
                 posBEHit := true
                 posStop  := posEntry        // ← 止损移到进场价
-        // 主动套利：到达止盈目标 → 出场（交易所能挂 TP 就提前挂，不能就靠警报手动关单）
-        tpJustHit := isLong ? high >= posTP : low <= posTP
+        // 被动套利：止损跟着 50均线−buffer 往上爬（只进不退），不设止盈
+        if passiveMode
+            posStop := isLong ? math.max(posStop, trailRaw) : math.min(posStop, trailRaw)
+        // 主动套利：到达止盈目标 → 出场（被动套利不设止盈，只等拖到的止损）
+        tpJustHit := not passiveMode and (isLong ? high >= posTP : low <= posTP)
         slJustHit := isLong ? low <= posStop : high >= posStop
         if tpJustHit or slJustHit
             posEntry := na
@@ -821,7 +829,7 @@ if activeMode != 0
 bool beJustHit = posBEHit and not posBEHit[1]
 
 plot(showSellLv and not na(tpRR) ? tpRR : na, "止盈（盈亏比目标）", color = color.new(color.yellow, 0), style = plot.style_linebr, linewidth = 2)
-plot(showSellLv and rideMode ? trailLevel : na, "移动止盈（50均线/前波段底−buffer）", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
+plot(showSellLv and passiveMode ? trailRaw : na, "50均线−buffer（被动拖单参考线）", color = color.new(color.orange, 40), style = plot.style_linebr, linewidth = 1)
 plot(enableBE and not na(posBE) ? posBE : na, "BE 触发价", color = color.new(color.aqua, 0), style = plot.style_linebr, linewidth = 1)
 plot(enableBE and not na(posStop) ? posStop : na, "目前止损（BE 后 = 进场价）", color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 2)
 plotshape(beJustHit, "Break Even 触发", style = shape.labelup, location = location.belowbar, color = color.new(color.fuchsia, 10), text = "BE", textcolor = color.white, size = size.tiny)
@@ -1020,12 +1028,16 @@ if barstate.islast
              "⏳ 等 1:" + str.tostring(beRatio, "#.#") + " → " + str.tostring(posBE, format.mintick) +
              "　或 50均线碰到 " + str.tostring(posEntry, format.mintick)
         r := f_cell(r, "Break Even", beTxt, not enableBE or na(posEntry) ? color.gray : posBEHit ? color.fuchsia : color.teal)
-        string sellTxt = rideMode ? "被动：移动止盈 " + str.tostring(trailLevel, format.mintick) : "主动：到目标就走（非 Stage2/Base1-2）"
+        // 套利方式：主动到目标就走 / 被动跟着 50均线−buffer 拖（只进不退）
+        string sellTxt = passiveMode ?
+             (na(posEntry) ? "被动：未进场（拖单线 " + str.tostring(trailRaw, format.mintick) + "）" :
+                             "被动：止损已拖到 " + str.tostring(posStop, format.mintick) + "（50均线−" + str.tostring(bufPct, "#.###") + "%）") :
+             "主动：到 1:" + str.tostring(rrTarget, "#.#") + " 就走" + (rideSuggest ? "　💡此处是主升段，可考虑改被动" : "")
         if sellClimax
             sellTxt := "⚠️ 高位+大波动+大量 → 减仓"
         if sellVolDump
             sellTxt := "⚠️ 连续" + str.tostring(consecDn) + "阴烛+大量阴烛 → 出"
-        r := f_cell(r, "卖出信号", sellTxt, sellClimax or sellVolDump ? color.red : rideMode ? color.teal : color.gray)
+        r := f_cell(r, "卖出信号", sellTxt, sellClimax or sellVolDump ? color.red : passiveMode ? color.teal : rideSuggest ? color.orange : color.gray)
         r := f_cell(r, "C · 突破区域", brkZoneTxt, brkZoneCol)
         r := f_cell(r, "C · 现价位置", zoneTxt, zoneCol)
         r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
