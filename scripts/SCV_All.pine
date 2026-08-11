@@ -135,6 +135,10 @@ showPanel = input.bool(true, "显示面板", group = grpPanel)
 showS = input.bool(true, "显示 Stage 区块",       group = grpPanel)
 showC = input.bool(true, "显示 Contraction 区块", group = grpPanel)
 showV = input.bool(true, "显示 Volume 区块",      group = grpPanel)
+showTPRow   = input.bool(true, "显示「止盈目标」",  group = grpPanel)
+showBERow   = input.bool(true, "显示「Break Even」", group = grpPanel)
+showSizeRow = input.bool(true, "显示「仓位」",      group = grpPanel)
+showSellRow = input.bool(true, "显示「卖出信号」",  group = grpPanel)
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
@@ -1059,21 +1063,31 @@ if barstate.islast and showPanel
         string lvTxt = cN < 1 ? "—" : (isLong ? "买点 " : "空点 ") + str.tostring(buyLevel, format.mintick) +
              " · 止损 " + str.tostring(stopLevel, format.mintick) + " · 风险 " + str.tostring(riskPct, "#.##") + "%（buffer " + str.tostring(bufPct, "#.###") + "%）"
         r := f_cell(r, "C · 买点/止损", lvTxt, cN >= 1 ? color.teal : color.gray)
+        r := f_cell(r, "C · 突破区域", brkZoneTxt, brkZoneCol)
+        r := f_cell(r, "C · 现价位置", zoneTxt, zoneCol)
+        r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
+        r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)
+
+    // —— 交易管理（四行各自独立开关，不受 C 区块影响） ——
+    if showTPRow
         // 已进场 → 显示这笔锁定的止盈目标；还没进场 → 显示按目前末段C算出来的预估目标
         string tpTxt = not na(posTP) ?
              "【已进场】1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(posTP, format.mintick) :
              na(tpRR) ? "—" : "1:" + str.tostring(rrTarget, "#.#") + " → " + str.tostring(tpRR, format.mintick) +
              " · 平均盈利×" + str.tostring(avgProfitMult, "#.#") + " → " + str.tostring(tpAvg, format.mintick)
         r := f_cell(r, "止盈目标", tpTxt, not na(posTP) ? color.green : na(tpRR) ? color.gray : color.teal)
+    if showBERow
         string beTxt = not enableBE ? "已关闭" : na(posEntry) ? "未进场" :
              posBEHit ? "✅ 已触发 → 止损已移到进场价 " + str.tostring(posEntry, format.mintick) :
              "⏳ 等 1:" + str.tostring(beRatio, "#.#") + " → " + str.tostring(posBE, format.mintick) +
              "　或 50均线碰到 " + str.tostring(posEntry, format.mintick)
         r := f_cell(r, "Break Even", beTxt, not enableBE or na(posEntry) ? color.gray : posBEHit ? color.fuchsia : color.teal)
+    if showSizeRow
         string sizeTxt = "第 " + str.tostring(sizeLevel) + " 层 · " + str.tostring(sizePct, "#.##") + "% × " +
              str.tostring(capital, "#") + " = " + str.tostring(sizeAmt, "#.##") +
              (na(sizeQty) ? "" : "（约 " + str.tostring(sizeQty, "#.##") + " 股/张）")
         r := f_cell(r, "仓位", sizeTxt, sizeLevel >= 3 ? color.orange : color.teal)
+    if showSellRow
         // 套利方式：主动到目标就走 / 被动跟着 50均线−buffer 拖（只进不退）
         string sellTxt = passiveMode ?
              (na(posEntry) ? "被动：未进场（拖单线 " + str.tostring(trailRaw, format.mintick) + "）" :
@@ -1084,10 +1098,6 @@ if barstate.islast and showPanel
         if sellVolDump
             sellTxt := "⚠️ 连续" + str.tostring(consecDn) + "阴烛+大量阴烛 → 出"
         r := f_cell(r, "卖出信号", sellTxt, sellClimax or sellVolDump ? color.red : passiveMode ? color.teal : rideSuggest ? color.orange : color.gray)
-        r := f_cell(r, "C · 突破区域", brkZoneTxt, brkZoneCol)
-        r := f_cell(r, "C · 现价位置", zoneTxt, zoneCol)
-        r := f_cell(r, "C · 加分", cScoreTxt, cScore >= 8 ? color.green : cScore >= 5 ? color.teal : color.gray)
-        r := f_cell(r, "C · 最近突破", lastBaseTxt, color.gray)
 
     // —— V · Volume ——
     if showV
