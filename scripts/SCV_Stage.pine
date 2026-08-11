@@ -47,7 +47,14 @@ rsNearPct  = input.float(2.0,        "接近新高/新低 (%)",  minval = 0.1, s
 grpMTF = "⑤ 大小周期"
 bigTF   = input.timeframe("D",  "大周期", group = grpMTF, tooltip = "固定用此周期算 150 均线趋势（默认天图）。新图请改成 240（4小时）。小周期 = 你当前图表的周期，切换图表就跟着变")
 
-grpPanel = "⑥ 面板"
+grpDraw = "⑥ 图表显示（每样都可以关）"
+showMA         = input.bool(true, "均线 50 / 150 / 200", group = grpDraw)
+showStageBg    = input.bool(true, "Stage 背景色",        group = grpDraw)
+showStageLabel = input.bool(true, "Stage 标签",          group = grpDraw)
+showStageMarks = input.bool(true, "Stage 警示（跌穿150 · 清仓 · 波动大不创新高）", group = grpDraw)
+
+grpPanel = "⑦ 面板"
+showPanel = input.bool(true, "显示面板", group = grpPanel)
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
@@ -59,9 +66,9 @@ ma150 = ta.sma(close, len150)
 ma200 = ta.sma(close, len200)
 
 // 颜色规定：50均线 灰色 · 150均线 绿色 · 200均线 红色
-plot(ma50,  "50均线",  color = color.gray, linewidth = 1)
-plot(ma150, "150均线", color = color.green, linewidth = 2)
-plot(ma200, "200均线", color = color.red,  linewidth = 2)
+plot(showMA ? ma50  : na, "50均线",  color = color.gray, linewidth = 1)
+plot(showMA ? ma150 : na, "150均线", color = color.green, linewidth = 2)
+plot(showMA ? ma200 : na, "200均线", color = color.red,  linewidth = 2)
 
 // ====================== 150 均线方向（Stage 的核心） =======================
 // Stage 只看 stageTF（默认天图）的 150 均线：整套状态机在该周期上计算，
@@ -244,17 +251,17 @@ shortScore -= shortAlignPen
 // ============================ 图表显示 =====================================
 stageColor = stage == 1 ? color.gray : stage == 2 ? color.green : stage == 3 ? color.orange : color.red
 // 背景淡淡的 Stage 颜色；Stage 1 & 3（不交易区）颜色更明显一点提醒
-bgcolor(color.new(stageColor, stage == 1 or stage == 3 ? 88 : 94))
+bgcolor(showStageBg ? color.new(stageColor, stage == 1 or stage == 3 ? 88 : 94) : na, title = "Stage 背景")
 
 // Stage 转换时贴标签
-if stage != stage[1]
+if showStageLabel and stage != stage[1]
     label.new(bar_index, high, "Stage " + str.tostring(stage), style = label.style_label_down, color = color.new(stageColor, 20), textcolor = color.white, size = size.small)
 
 // Stage 3 跌穿 150 均线警讯
-plotshape(stage3BreakMA and not stage3BreakMA[1], "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
+plotshape(showStageMarks and stage3BreakMA and not stage3BreakMA[1], "Stage3 跌穿150均线", style = shape.xcross, location = location.belowbar, color = color.orange, size = size.small)
 // 清仓信号（距周期高点回落 ≥ 门槛）+ 波动大不创新高
-plotshape(cutSignal and not cutSignal[1], "清仓信号", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.normal, text = "清仓")
-plotshape(stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
+plotshape(showStageMarks and cutSignal and not cutSignal[1], "清仓信号", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.normal, text = "清仓")
+plotshape(showStageMarks and stage3Choppy and not stage3Choppy[1], "波动大不创新高", style = shape.diamond, location = location.abovebar, color = color.orange, size = size.tiny)
 
 // ============================ 信息面板 =====================================
 var table panel = table.new(panelPos, 2, 11, border_width = 1, border_color = color.new(color.gray, 60))
@@ -262,7 +269,10 @@ f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
 
-if barstate.islast
+if barstate.islast and not showPanel
+    table.clear(panel, 0, 0, 1, 10)
+
+if barstate.islast and showPanel
     stageTxt = "Stage " + str.tostring(stage) +
          (stage == 1 ? stage1Confirmed ? "（四项条件都成立）" : "（条件未齐）" :
           stage == 2 ? stage2Confirmed ? "（三项条件都成立）" : "（条件未齐）" :

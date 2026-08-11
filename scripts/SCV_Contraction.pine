@@ -35,7 +35,6 @@ grpMA = "① 均线（判断多头/空头排列）"
 len50  = input.int(50,  "50 均线",  minval = 1, group = grpMA)
 len150 = input.int(150, "150 均线", minval = 1, group = grpMA)
 len200 = input.int(200, "200 均线", minval = 1, group = grpMA)
-showMA = input.bool(true, "显示均线", group = grpMA)
 stackMode = input.string("宽松：150>200", "多头/空头排列定义", options = ["宽松：150>200", "严格：50>150>200"], group = grpMA, tooltip = "宽松：只要 150 在 200 上就算多头排列，50 的位置只影响扣分档次（C1 可以早一点开始）。严格：要 50 在最上、150 中间、200 最下的完美排列才算（教材定义，C1 会出现得晚、数量少）。空头排列镜像")
 
 grpC = "② Contraction 侦测"
@@ -49,8 +48,6 @@ requireShrink  = input.bool(true, "结构必须波段缩小（每段比上一段
 requireTouch50 = input.bool(true,  "C1 必须动到 50均线",       group = grpC)
 tol50          = input.float(2.0,  "50均线触碰容差 (%)",       minval = 0, step = 0.5, group = grpC)
 buyPct         = input.float(10.0, "买点：最后一段收缩 ≤ (%)", minval = 0.5, step = 0.5, group = grpC)
-showBoxes      = input.bool(true,  "画出每段收缩框",           group = grpC)
-showBaseBox    = input.bool(true,  "Base 成立时框起整个 base", group = grpC, tooltip = "Base 两个条件都成立（C1高点被突破 + 至少2个C）时，用紫色方框把整个 base 框起来")
 seedBars       = input.int(50,     "C1 起点回看K线数",         minval = 5, group = grpC, tooltip = "排列刚形成时，C1 的起点(做多=高点/做空=低点)从最近这么多根里的极值算起，可早于排列形成")
 
 grpScore = "③ 加分项目"
@@ -58,7 +55,6 @@ c1Min     = input.float(20.0, "加分2：C1 最小深度 (%)", group = grpScore)
 c1Max     = input.float(35.0, "加分2：C1 最大深度 (%)", group = grpScore)
 shrinkTol = input.float(1.0,  "加分1：收缩合理容差 (± 前段一半)", minval = 0, step = 0.5, group = grpScore, tooltip = "每段要落在「前段一半 ± 此值」之内才算合理。太小(缩太多)或太大(缩太少)都不给分")
 c1Pen200  = input.int(3,      "扣分：C1 低点跌到 200均线", minval = 0, group = grpScore, tooltip = "C1 低点(做多)深到碰/跌破 200均线 = 回调太深太弱，扣分（做空镜像）")
-showZones = input.bool(true,  "显示 C1 三等份区域（Pivot/Cheap/Low Cheap）", group = grpScore)
 
 grpStage = "④ Stage（用于 Base 计数）"
 stageTF  = input.timeframe("D", "Stage 周期", group = grpStage, tooltip = "Stage 固定看此周期的 150 均线（默认天图），与当前图表周期无关。新币/新股改成 240（4小时）")
@@ -73,9 +69,21 @@ bufHour   = input.float(0.5,   "股/币：时图 buffer (%)",  minval = 0, step 
 bufMin    = input.float(0.25,  "股/币：分图 buffer (%)",  minval = 0, step = 0.05, group = grpBuy)
 fxDayHour = input.float(10.0,  "汇/金/指/期：天·时图 末段C% ×", minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
 fxMinute  = input.float(5.0,   "汇/金/指/期：分图 末段C% ×",   minval = 0, step = 1, group = grpBuy, tooltip = "buffer% =（末段C% × 此值%）÷ 2")
-showBuyLv = input.bool(true,   "画出买点 / 止损线", group = grpBuy)
 
-grpPanel = "⑥ 面板"
+grpDraw = "⑥ 图表显示（每样都可以关）"
+showMA         = input.bool(true, "均线 50 / 150 / 200",        group = grpDraw)
+showBoxes      = input.bool(true, "每段收缩框 C1~C6",           group = grpDraw)
+showCLabels    = input.bool(true, "每段收缩的 % 标签",          group = grpDraw)
+showTent       = input.bool(true, "C? 实时标记（未成形的新段）", group = grpDraw)
+showBaseBox    = input.bool(true, "Base 紫色大框",              group = grpDraw)
+showBaseLine   = input.bool(true, "Base 突破位（C1 高点线）",   group = grpDraw)
+showZones      = input.bool(true, "C1 三等份区域 Pivot/Cheap/Low Cheap", group = grpDraw)
+showBuyLv      = input.bool(true, "买点线 / 止损线",            group = grpDraw)
+showBreakMarks = input.bool(true, "Base 突破三角 + 突破说明标签", group = grpDraw)
+showBuyZoneBg  = input.bool(true, "买点区域背景色",             group = grpDraw)
+
+grpPanel = "⑦ 面板"
+showPanel = input.bool(true, "显示面板", group = grpPanel)
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
@@ -193,7 +201,8 @@ f_redraw(bool longDir) =>
             float d  = array.get(cDepth, i)
             if showBoxes
                 array.push(cBoxes, box.new(sb, math.max(s, e), eb, math.min(s, e), border_color = color.new(color.blue, 30), bgcolor = color.new(color.blue, 90)))
-            array.push(cLabels, label.new(eb, e, "C" + str.tostring(i + 1) + " " + str.tostring(d, "#.##") + "%", style = longDir ? label.style_label_up : label.style_label_down, color = color.new(color.blue, 25), textcolor = color.white, size = size.small))
+            if showCLabels
+                array.push(cLabels, label.new(eb, e, "C" + str.tostring(i + 1) + " " + str.tostring(d, "#.##") + "%", style = longDir ? label.style_label_up : label.style_label_down, color = color.new(color.blue, 25), textcolor = color.white, size = size.small))
 
 // ============================ 侦测状态 =====================================
 var int   activeMode  = 0    // 1=做多侦测, -1=做空侦测, 0=暂停
@@ -426,9 +435,10 @@ if activeMode != 0 and cN >= 2 and not na(anchor) and not na(swingEnd)
     bool  brokeHi   = isLong ? (anchor > lastSegHi and anchor < baseHi) : (anchor < lastSegHi and anchor > baseHi)
     if brokeHi
         float tDepth = isLong ? (anchor - swingEnd) / anchor * 100 : (swingEnd - anchor) / anchor * 100
-        if showBoxes
+        if showTent and showBoxes
             tentBox := box.new(anchorBar, math.max(anchor, swingEnd), bar_index, math.min(anchor, swingEnd), border_color = color.new(color.orange, 20), border_style = line.style_dashed, bgcolor = color.new(color.orange, 92))
-        tentLabel := label.new(bar_index, swingEnd, "C? " + str.tostring(tDepth, "#.##") + "%", style = isLong ? label.style_label_up : label.style_label_down, color = color.new(color.orange, 20), textcolor = color.white, size = size.small)
+        if showTent
+            tentLabel := label.new(bar_index, swingEnd, "C? " + str.tostring(tDepth, "#.##") + "%", style = isLong ? label.style_label_up : label.style_label_down, color = color.new(color.orange, 20), textcolor = color.white, size = size.small)
 
 // —— 安全取值：数组为空时不碰 array.get/last，避免越界错误 ——
 float c1A       = na     // C1 波段起点 = 突破位（做多=高点，做空=低点）
@@ -503,8 +513,9 @@ if activeMode != 0 and array.size(cDepth) >= 1
                  (evtBuy ? "\n✅ 买点（末段 " + str.tostring(lastD, "#.##") + "% ≤ " + str.tostring(buyPct, "#.#") + "%）" :
                            "\n⚠️ 末段 " + str.tostring(lastD, "#.##") + "% > " + str.tostring(buyPct, "#.#") + "%") +
                  "\n加分 " + str.tostring(totalScore) + "/10"
-            label.new(bar_index, isLong ? low : high, bTxt,
-                 style = isLong ? label.style_label_up : label.style_label_down,
+            if showBreakMarks
+                label.new(bar_index, isLong ? low : high, bTxt,
+                     style = isLong ? label.style_label_up : label.style_label_down,
                  color = evtBuy ? (isLong ? color.new(color.green, 10) : color.new(color.red, 10)) : color.new(color.orange, 20),
                  textcolor = color.white, size = size.normal)
             lastBaseTxt := (isLong ? "做多" : "做空") + " Base #" + str.tostring(baseCount) + " · 加分 " + str.tostring(totalScore) + "/10" + (evtBuy ? " · ✅买点" : " · ⚠️非买点")
@@ -541,7 +552,7 @@ plot(showBuyLv ? stopLevel : na, "止损（末段C低−buffer）", color = colo
 
 // ============================ 图表显示 =====================================
 // Base 突破位（C1 波段起点）+ C1 三等份区域
-pBrk = plot(c1A, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+pBrk = plot(showBaseLine ? c1A : na, "Base 突破位 (C1)", color = isLong ? color.new(color.green, 0) : color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
 pZ1  = plot(showZones ? z1 : na, "Pivot/Cheap 分界",     color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 pZ2  = plot(showZones ? z2 : na, "Cheap/Low Cheap 分界", color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
 pBot = plot(showZones ? c1B : na, "C1 收缩终点",         color = color.new(color.gray, 60), style = plot.style_linebr, linewidth = 1)
@@ -550,10 +561,10 @@ fill(pZ1,  pZ2, color = showZones ? color.new(color.yellow, 86) : na, title = "C
 fill(pZ2, pBot, color = showZones ? color.new(color.blue,   88) : na, title = "Low Cheap（离突破位最远 1/3）")
 
 // 买点区域背景
-bgcolor(buyZone ? color.new(isLong ? color.green : color.red, 85) : na)
+bgcolor(showBuyZoneBg and buyZone ? color.new(isLong ? color.green : color.red, 85) : na, title = "买点区域背景")
 
-plotshape(evtBreak and isLong,     "Base 向上突破", style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.small)
-plotshape(evtBreak and not isLong, "Base 向下跌破", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
+plotshape(showBreakMarks and evtBreak and isLong,     "Base 向上突破", style = shape.triangleup,   location = location.belowbar, color = color.green, size = size.small)
+plotshape(showBreakMarks and evtBreak and not isLong, "Base 向下跌破", style = shape.triangledown, location = location.abovebar, color = color.red,   size = size.small)
 
 // ============================ 信息面板 =====================================
 var table panel = table.new(panelPos, 2, 15, border_width = 1, border_color = color.new(color.gray, 60))
@@ -561,7 +572,10 @@ f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
 
-if barstate.islast
+if barstate.islast and not showPanel
+    table.clear(panel, 0, 0, 1, 14)
+
+if barstate.islast and showPanel
     string depthTxt = ""
     if cN > 0
         for i = 0 to cN - 1

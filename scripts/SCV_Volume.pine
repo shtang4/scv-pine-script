@@ -33,7 +33,15 @@ grpLiq = "③ 流动性"
 minDollarM   = input.float(1.0, "最低日均交易金额（百万）", minval = 0.1, step = 0.1, group = grpLiq, tooltip = "日均 收盘价×成交量 要超过此金额（单位=该股计价货币，美股即美元）")
 dollarLookback = input.int(20,  "交易金额平均回看天数",   minval = 1, group = grpLiq, tooltip = "取几个交易日的日金额来平均")
 
-grpPanel = "④ 面板"
+grpDraw = "④ 图表显示（每样都可以关）"
+showVolBars  = input.bool(true, "成交量柱",                group = grpDraw)
+showVolMA    = input.bool(true, "交易量均线（橙线）",       group = grpDraw)
+showVolThr   = input.bool(true, "突破放量门槛线",           group = grpDraw)
+showVolMarks = input.bool(true, "放量阳烛 / 放量阴烛 三角", group = grpDraw)
+showLiqBg    = input.bool(true, "流动性不足红色背景",       group = grpDraw)
+
+grpPanel = "⑤ 面板"
+showPanel = input.bool(true, "显示面板", group = grpPanel)
 panelPosTxt = input.string("右中", "面板位置", options = ["右上", "右中", "右下", "中上", "中下", "左上", "左中", "左下"], group = grpPanel, tooltip = "选面板显示在图上的哪个角落（TradingView 的表格不能用鼠标拖动）")
 panelPos = panelPosTxt == "右上" ? position.top_right : panelPosTxt == "右中" ? position.middle_right : panelPosTxt == "右下" ? position.bottom_right : panelPosTxt == "中上" ? position.top_center : panelPosTxt == "中下" ? position.bottom_center : panelPosTxt == "左上" ? position.top_left : panelPosTxt == "左中" ? position.middle_left : position.bottom_left
 panelSizeTxt = input.string("小", "面板文字大小", options = ["极小", "小", "正常", "大"], group = grpPanel)
@@ -92,16 +100,16 @@ bool bonusOK = mode != 0 and (isLong ? cntUpBig > cntDnBig : cntDnBig > cntUpBig
 // 成交量柱：阳烛绿、阴烛红、放量加深、变盘线灰（影线大过实体，两边都不计）
 color volCol = isUp ? (bigVol ? color.new(color.green, 0) : color.new(color.green, 55)) :
      isDn ? (bigVol ? color.new(color.red, 0) : color.new(color.red, 55)) : color.new(color.gray, 40)
-plot(volume, "成交量", color = volCol, style = plot.style_columns)
-plot(volMA, "均量", color = color.new(color.orange, 0), linewidth = 2)
-plot(volMA * breakoutMult, "突破放量门槛", color = color.new(color.orange, 70), linewidth = 1)
+plot(showVolBars ? volume : na, "成交量", color = volCol, style = plot.style_columns)
+plot(showVolMA ? volMA : na, "均量", color = color.new(color.orange, 0), linewidth = 2)
+plot(showVolThr ? volMA * breakoutMult : na, "突破放量门槛", color = color.new(color.orange, 70), linewidth = 1)
 
 // 突破量能确认标记
-plotshape(breakoutVolOK and isLong,     "放量阳烛（做多突破量）", style = shape.triangleup,   location = location.top, color = color.green, size = size.tiny)
-plotshape(breakoutVolOK and not isLong, "放量阴烛（做空突破量）", style = shape.triangledown, location = location.top, color = color.red,   size = size.tiny)
+plotshape(showVolMarks and breakoutVolOK and isLong,     "放量阳烛（做多突破量）", style = shape.triangleup,   location = location.top, color = color.green, size = size.tiny)
+plotshape(showVolMarks and breakoutVolOK and not isLong, "放量阴烛（做空突破量）", style = shape.triangledown, location = location.top, color = color.red,   size = size.tiny)
 
 // 流动性不足 → 整个副图淡红色警告
-bgcolor(not liqOK ? color.new(color.red, 85) : na)
+bgcolor(showLiqBg and not liqOK ? color.new(color.red, 85) : na, title = "流动性不足警告")
 
 // ============================ 信息面板 =====================================
 var table panel = table.new(panelPos, 2, 7, border_width = 1, border_color = color.new(color.gray, 60))
@@ -109,7 +117,10 @@ f_cell(int row, string k, string v, color c) =>
     table.cell(panel, 0, row, k, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = panelSize, text_halign = text.align_left)
     table.cell(panel, 1, row, v, text_color = color.white, bgcolor = color.new(c, 30), text_size = panelSize, text_halign = text.align_left)
 
-if barstate.islast
+if barstate.islast and not showPanel
+    table.clear(panel, 0, 0, 1, 6)
+
+if barstate.islast and showPanel
     string modeTxt   = (mode == 1 ? "多头排列 → 做多量能" : mode == -1 ? "空头排列 → 做空量能" : "无排列 → 暂停") + "（" + timeframe.period + "）"
     string structTxt = mode == 0 ? "—" : (structVolOK ? "✔ " : "✘ ") +
          "放量" + (isLong ? "阳烛量 " : "阴烛量 ") + str.tostring(isLong ? bigUpVol : bigDnVol, format.volume) +
