@@ -106,11 +106,12 @@ beOffset      = input.float(0.5,  "BE 比例 = 盈亏比目标 −", minval = 0.
 
 grpSize = "⑨ 仓位管理"
 capital     = input.float(1000.0, "本金（下注用的总资金）", minval = 1, step = 100, group = grpSize, tooltip = "你要拿来投资的资金总额，仓位按这个数字乘百分比算")
-sizeLevelTxt = input.string("第 1 层", "目前在第几层", options = ["第 0 层", "第 1 层", "第 2 层", "第 3 层"], group = grpSize, tooltip = "指标不知道你实际有没有赚钱，这一层要自己设。每关一单调一次：赚钱 → 往上推一层（最高第 3 层）；亏钱 → 往下退一层（最低第 0 层）。例：第 3 层亏了退到第 2 层，第 1 层亏了退到第 0 层")
+sizeLevelTxt = input.string("第 1 层", "目前在第几层", options = ["第 0 层", "第 1 层", "第 2 层", "第 3 层"], group = grpSize, tooltip = "指标不知道你实际有没有赚钱，这一层要自己设。每关一单调一次：赚钱 → 往上推一层（最高第 3 层）；亏钱 → 按下面「亏损后退到哪一层」的规则调。面板会直接写「下一单：赚→第X层 · 亏→第Y层」，照着调就好")
 pct0 = input.float(3.25,  "第 0 层 (%)：最低",       minval = 0.1, step = 0.25, group = grpSize)
 pct1 = input.float(6.25,  "第 1 层 (%)",             minval = 0.1, step = 0.25, group = grpSize)
 pct2 = input.float(12.5,  "第 2 层 (%)",             minval = 0.1, step = 0.25, group = grpSize)
 pct3 = input.float(25.0,  "第 3 层 (%)：最高",       minval = 0.1, step = 0.25, group = grpSize)
+lossRule = input.string("逐层退：3→2→1→0", "亏损后退到哪一层", options = ["逐层退：3→2→1→0", "回到第1层：3→1 · 2→1 · 1→1"], group = grpSize, tooltip = "赚钱两种规则都一样：往上推一层，最高第 3 层。亏钱才有分别 —— 逐层退：一次退一层，最低第 0 层；回到第1层：不管在第几层，亏了都回第 1 层（第 0 层维持第 0 层）")
 
 grpDraw = "⑩ 图表显示（每样都可以关）"
 showMA         = input.bool(true, "均线 50 / 150 / 200",        group = grpDraw)
@@ -860,11 +861,15 @@ bool beJustHit = posBEHit and not posBEHit[1]
 // ===================== 仓位管理（0层 3.25% → 6.25% → 12.5% → 25%） =========
 // 层级要「自己设」—— 指标不知道你实际有没有赚钱。每关一单调一次：
 //   赚钱 → 往上推一层（最高第 3 层 25%，不再往上）
-//   亏钱 → 往下退一层（最低第 0 层 3.25%，不再往下）
-//   例：第 3 层亏了退到第 2 层；第 1 层亏了退到第 0 层
+//   亏钱 → 两种规则二选一：
+//     逐层退   ：3→2 · 2→1 · 1→0 · 0→0（最低第 0 层）
+//     回到第1层：3→1 · 2→1 · 1→1（第 0 层维持第 0 层）
 // 本金 × 该层% = 这一单要放多少钱
 int   sizeLevel = sizeLevelTxt == "第 0 层" ? 0 : sizeLevelTxt == "第 1 层" ? 1 : sizeLevelTxt == "第 2 层" ? 2 : 3
 float sizePct = sizeLevel == 0 ? pct0 : sizeLevel == 1 ? pct1 : sizeLevel == 2 ? pct2 : pct3
+// 下一单该调到第几层（层级是手动设的，这里只是提示你怎么调）
+int nextWin  = math.min(sizeLevel + 1, 3)
+int nextLoss = lossRule == "逐层退：3→2→1→0" ? math.max(sizeLevel - 1, 0) : math.min(sizeLevel, 1)
 float sizeAmt = capital * sizePct / 100
 float sizeRef = na(posEntry) ? buyLevel : posEntry      // 用进场价换算股数/张数
 float sizeQty = na(sizeRef) or sizeRef == 0 ? na : sizeAmt / sizeRef
@@ -1084,7 +1089,7 @@ if barstate.islast and showPanel
         string sizeTxt = "第 " + str.tostring(sizeLevel) + " 层 · " + str.tostring(sizePct, "#.##") + "% × " +
              str.tostring(capital, "#") + " = " + str.tostring(sizeAmt, "#.##") +
              (na(sizeQty) ? "" : "（约 " + str.tostring(sizeQty, "#.##") + " 股/张）") +
-             (sizeLevel == 0 ? "　（已到最低层）" : sizeLevel == 3 ? "　（已到最高层）" : "")
+             "　│ 下一单：赚→第" + str.tostring(nextWin) + "层 · 亏→第" + str.tostring(nextLoss) + "层"
         r := f_cell(r, "仓位", sizeTxt, sizeLevel == 0 ? color.red : sizeLevel == 3 ? color.orange : color.teal)
     if showSellRow
         // 套利方式：主动到目标就走 / 被动跟着 50均线−buffer 拖（只进不退）
