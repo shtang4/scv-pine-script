@@ -106,10 +106,11 @@ beOffset      = input.float(0.5,  "BE 比例 = 盈亏比目标 −", minval = 0.
 
 grpSize = "⑨ 仓位管理"
 capital     = input.float(1000.0, "本金（下注用的总资金）", minval = 1, step = 100, group = grpSize, tooltip = "你要拿来投资的资金总额，仓位按这个数字乘百分比算")
-baseSizePct = input.float(6.25,   "第一层仓位 (%)",        minval = 0.1, step = 0.25, group = grpSize, tooltip = "第一单放本金的多少%。教材：6.25%")
-sizeMult    = input.float(2.0,    "盈利后每层 ×",          minval = 1, step = 0.5, group = grpSize, tooltip = "关单有盈利就往前推进一层：6.25% → 12.5% → 25% → 50%…")
-maxSizePct  = input.float(100.0,  "仓位上限 (%)",          minval = 1, step = 5, group = grpSize)
-lossRule    = input.string("回到第一层", "亏损后怎么办", options = ["回到第一层", "退一层", "不变"], group = grpSize, tooltip = "教材只讲了「有盈利就往前推进一层」，没讲亏损怎么处理。默认保守：亏了回到第一层")
+sizeLevelTxt = input.string("第 1 层", "目前在第几层", options = ["第 0 层", "第 1 层", "第 2 层", "第 3 层"], group = grpSize, tooltip = "指标不知道你实际有没有赚钱，这一层要自己设：上一单赚钱 → 往上推一层；上一单亏钱 → 退到第 0 层。最高只到第 3 层")
+pct0 = input.float(3.25,  "第 0 层 (%)：上一单亏钱", minval = 0.1, step = 0.25, group = grpSize)
+pct1 = input.float(6.25,  "第 1 层 (%)",             minval = 0.1, step = 0.25, group = grpSize)
+pct2 = input.float(12.5,  "第 2 层 (%)",             minval = 0.1, step = 0.25, group = grpSize)
+pct3 = input.float(25.0,  "第 3 层 (%)：最高",       minval = 0.1, step = 0.25, group = grpSize)
 
 grpDraw = "⑩ 图表显示（每样都可以关）"
 showMA         = input.bool(true, "均线 50 / 150 / 200",        group = grpDraw)
@@ -822,7 +823,6 @@ var float posStop  = na       // 目前的止损（BE 触发后 = 进场价）
 var float posBE    = na       // BE 触发价位
 var float posTP    = na       // 止盈目标
 var bool  posBEHit = false    // 止损是否已经移到进场价
-var int   sizeLevel = 1       // 仓位层级：1=6.25% 2=12.5% 3=25%…（盈利后往前推进一层）
 bool entryJustHit = false     // 本根触发买点（可挂警报）
 bool tpJustHit    = false     // 本根到达止盈目标（可挂警报）
 bool slJustHit    = false     // 本根碰到止损
@@ -850,13 +850,6 @@ if activeMode != 0
         tpJustHit := not passiveMode and (isLong ? high >= posTP : low <= posTP)
         slJustHit := isLong ? low <= posStop : high >= posStop
         if tpJustHit or slJustHit
-            // 仓位层级：这一单有盈利就往前推进一层；不赚不赔(BE出场)不动；亏损照设定处理
-            bool wasWin  = tpJustHit or (isLong ? posStop > posEntry : posStop < posEntry)
-            bool wasFlat = not tpJustHit and posStop == posEntry
-            if wasWin
-                sizeLevel := sizeLevel + 1
-            else if not wasFlat
-                sizeLevel := lossRule == "回到第一层" ? 1 : lossRule == "退一层" ? math.max(sizeLevel - 1, 1) : sizeLevel
             posEntry := na
             posStop  := na
             posBE    := na
@@ -864,9 +857,13 @@ if activeMode != 0
             posBEHit := false
 bool beJustHit = posBEHit and not posBEHit[1]
 
-// ===================== 仓位管理（6.25% → 12.5% → 25% …） ==================
-// 每关一单有盈利，就往前推进一层；本金 × 该层% = 这一单要放多少钱
-float sizePct = math.min(baseSizePct * math.pow(sizeMult, sizeLevel - 1), maxSizePct)
+// ===================== 仓位管理（0层 3.25% → 6.25% → 12.5% → 25%） =========
+// 层级要「自己设」—— 指标不知道你实际有没有赚钱：
+//   上一单赚钱 → 往上推一层（最高第 3 层 25%，不再往上）
+//   上一单亏钱 → 退到第 0 层 3.25%
+// 本金 × 该层% = 这一单要放多少钱
+int   sizeLevel = sizeLevelTxt == "第 0 层" ? 0 : sizeLevelTxt == "第 1 层" ? 1 : sizeLevelTxt == "第 2 层" ? 2 : 3
+float sizePct = sizeLevel == 0 ? pct0 : sizeLevel == 1 ? pct1 : sizeLevel == 2 ? pct2 : pct3
 float sizeAmt = capital * sizePct / 100
 float sizeRef = na(posEntry) ? buyLevel : posEntry      // 用进场价换算股数/张数
 float sizeQty = na(sizeRef) or sizeRef == 0 ? na : sizeAmt / sizeRef
@@ -1085,8 +1082,9 @@ if barstate.islast and showPanel
     if showSizeRow
         string sizeTxt = "第 " + str.tostring(sizeLevel) + " 层 · " + str.tostring(sizePct, "#.##") + "% × " +
              str.tostring(capital, "#") + " = " + str.tostring(sizeAmt, "#.##") +
-             (na(sizeQty) ? "" : "（约 " + str.tostring(sizeQty, "#.##") + " 股/张）")
-        r := f_cell(r, "仓位", sizeTxt, sizeLevel >= 3 ? color.orange : color.teal)
+             (na(sizeQty) ? "" : "（约 " + str.tostring(sizeQty, "#.##") + " 股/张）") +
+             (sizeLevel == 0 ? "　⚠️上一单亏损" : sizeLevel == 3 ? "　（已到最高层）" : "")
+        r := f_cell(r, "仓位", sizeTxt, sizeLevel == 0 ? color.red : sizeLevel == 3 ? color.orange : color.teal)
     if showSellRow
         // 套利方式：主动到目标就走 / 被动跟着 50均线−buffer 拖（只进不退）
         string sellTxt = passiveMode ?
